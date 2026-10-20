@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Reestr Task">
+  <rect width="64" height="64" rx="14" fill="#0d1b30"/>
+  <path d="M17 18.5 32 11l15 7.5L32 26 17 18.5Z" fill="#79dbd5"/>
+  <path d="m17 28 15 7.5L47 28v8L32 43.5 17 36v-8Z" fill="#fff"/>
+  <path d="m17 45.5 15 7.5 15-7.5v-5L32 48l-15-7.5v5Z" fill="#1fa5a4"/>
+</svg>

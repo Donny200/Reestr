@@ -1,0 +1,151 @@
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+    ports:
+      # Loopback only: reachable from this host for local development, never from the network.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-multiple-dbs.sql:/docker-entrypoint-initdb.d/init-multiple-dbs.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-postgres} -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  eureka-server:
+    build: ./eureka-server
+    container_name: eureka-server
+    # Internal network only: the registry has no authentication, so it must not be reachable from outside Compose.
+    expose:
+      - "8761"
+    restart: unless-stopped
+
+  identity-service:
+    build: ./identity-service
+    container_name: identity-service
+    # Not published: every request enters through nginx -> api-gateway, which sets the visitor address header.
+    expose:
+      - "8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/adlita_project1
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      IDENTITY_DB_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      BOOTSTRAP_SUPER_ADMIN_EMAIL: "${BOOTSTRAP_SUPER_ADMIN_EMAIL:-}"
+      BOOTSTRAP_SUPER_ADMIN_PASSWORD: "${BOOTSTRAP_SUPER_ADMIN_PASSWORD:-}"
+      APP_COOKIE_SECURE: "${APP_COOKIE_SECURE:?APP_COOKIE_SECURE is required}"
+      APP_COOKIE_SAME_SITE: "${APP_COOKIE_SAME_SITE:?APP_COOKIE_SAME_SITE is required}"
+      MFA_ENABLED: "${MFA_ENABLED:-false}"
+      MFA_ENCRYPTION_KEY: "${MFA_ENCRYPTION_KEY:-}"
+      MFA_ENROLLMENT_DEADLINE: "${MFA_ENROLLMENT_DEADLINE:-}"
+      PASSWORD_RESET_MAIL_ENABLED: "${PASSWORD_RESET_MAIL_ENABLED:-false}"
+      PASSWORD_RESET_MAIL_FROM: "${PASSWORD_RESET_MAIL_FROM:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      SPRING_MAIL_HOST: "${SPRING_MAIL_HOST:-}"
+      SPRING_MAIL_PORT: "${SPRING_MAIL_PORT:-587}"
+      SPRING_MAIL_USERNAME: "${SPRING_MAIL_USERNAME:-}"
+      SPRING_MAIL_PASSWORD: "${SPRING_MAIL_PASSWORD:-}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    restart: unless-stopped
+
+  reference-service:
+    build: ./reference-service
+    container_name: reference-service
+    expose:
+      - "8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/reference_service_db
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      REFERENCE_DB_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    restart: unless-stopped
+
+  function-catalog-service:
+    build: ./function-catalog-service
+    container_name: function-catalog-service
+    expose:
+      - "8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/function_catalog_db
+      SPRING_DATASOURCE_USERNAME: "${POSTGRES_USER:-postgres}"
+      FUNCTION_CATALOG_DB_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      AZURE_TRANSLATOR_ENDPOINT: "${AZURE_TRANSLATOR_ENDPOINT:-}"
+      AZURE_TRANSLATOR_KEY: "${AZURE_TRANSLATOR_KEY:-}"
+      AZURE_TRANSLATOR_REGION: "${AZURE_TRANSLATOR_REGION:-}"
+      CATALOG_TRANSLATION_ENABLED: "${CATALOG_TRANSLATION_ENABLED:-true}"
+      # Support chat guest cookie: Secure flag follows the same setting as the identity-service session cookies.
+      APP_COOKIE_SECURE: "${APP_COOKIE_SECURE:?APP_COOKIE_SECURE is required}"
+      # Optional e-mail notices for support replies (off unless HELP_MAIL_ENABLED=true and SMTP is set).
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      HELP_MAIL_ENABLED: "${HELP_MAIL_ENABLED:-false}"
+      HELP_MAIL_FROM: "${HELP_MAIL_FROM:-}"
+      SPRING_MAIL_HOST: "${SPRING_MAIL_HOST:-}"
+      SPRING_MAIL_PORT: "${SPRING_MAIL_PORT:-587}"
+      SPRING_MAIL_USERNAME: "${SPRING_MAIL_USERNAME:-}"
+      SPRING_MAIL_PASSWORD: "${SPRING_MAIL_PASSWORD:-}"
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    ports:
+      # Loopback only, for the Vite dev server proxy. Host callers arrive from the Docker bridge address, which is
+      # not a trusted proxy, so their X-Real-IP is overwritten with the real remote address.
+      - "127.0.0.1:8082:8082"
+    environment:
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+      # Only nginx (static address below) may pass the visitor address through.
+      GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-172.28.0.10/32}"
+    depends_on:
+      - eureka-server
+      - identity-service
+      - reference-service
+      - function-catalog-service
+    restart: unless-stopped
+
+  front:
+    build: ./front
+    container_name: front
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      default:
+        ipv4_address: 172.28.0.10
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  pgdata:

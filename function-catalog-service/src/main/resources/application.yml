@@ -1,0 +1,137 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: function-catalog-service
+  config:
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
+  datasource:
+    url: jdbc:postgresql://localhost:5433/function_catalog_db
+    username: postgres
+    password: ${FUNCTION_CATALOG_DB_PASSWORD:${POSTGRES_PASSWORD}}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+  # Optional SMTP for visitor-question notifications (catalog.help.mail). Nothing is sent unless
+  # HELP_MAIL_ENABLED=true and host, sender and PUBLIC_BASE_URL are set; credentials come only from the environment.
+  mail:
+    host: ${SPRING_MAIL_HOST:}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  instance:
+    prefer-ip-address: true
+
+jwt:
+  secret: ${JWT_SECRET}
+
+azure:
+  translator:
+    endpoint: ${AZURE_TRANSLATOR_ENDPOINT:}
+    key: ${AZURE_TRANSLATOR_KEY:}
+    region: ${AZURE_TRANSLATOR_REGION:}
+
+springdoc:
+  swagger-ui:
+    path: /swagger
+
+catalog:
+  # Public origin of the SPA (e.g. https://reestr.example); used for links in visitor e-mails and printed guides.
+  public-base-url: ${PUBLIC_BASE_URL:}
+  help:
+    # Support chat. Visitor messages per address and per support identity, recovery-code attempts per address.
+    per-client-limit: 20
+    per-client-window: 10m
+    per-guest-limit: 20
+    per-guest-window: 10m
+    global-limit: 2000
+    global-window: 1h
+    max-unanswered-visitor-messages: 10
+    max-messages: 500
+    recovery-attempt-limit: 5
+    recovery-attempt-window: 15m
+    public-base-url: ${PUBLIC_BASE_URL:}
+    session:
+      # Anonymous guest cookie: HttpOnly, SameSite=Strict, path /api/help. Secure unless APP_COOKIE_SECURE=false
+      # (local HTTP stack). Idle browsers and the contact details of idle guests are removed after idle-timeout.
+      cookie-name: reestr_support
+      cookie-secure: ${APP_COOKIE_SECURE:true}
+      idle-timeout: 180d
+    mail:
+      enabled: ${HELP_MAIL_ENABLED:false}
+      from: ${HELP_MAIL_FROM:}
+    stream:
+      # Server-sent events for open support pages and staff inboxes (ids only, never message text). Clients fall back
+      # to polling when a stream is unavailable. Subscriptions live in memory per service instance.
+      enabled: ${HELP_STREAM_ENABLED:true}
+      heartbeat: PT20S
+      timeout: PT10M
+      max-per-guest: 5
+      max-per-user: 5
+      max-total: 2000
+  appointments:
+    # Organization-managed appointment calendars (no external scheduling system). Visitor contact details are removed
+    # contact-retention after the appointment ended.
+    default-time-zone: Asia/Tashkent
+    per-client-limit: 10
+    per-client-window: 15m
+    global-limit: 2000
+    global-window: 1h
+    lookup-limit: 60
+    lookup-window: 10m
+    max-upcoming-per-contact: 3
+    max-days-per-request: 31
+    contact-retention: 30d
+  reports:
+    client-address-header: X-Real-IP
+    per-client-limit: 5
+    per-client-window: 15m
+    global-limit: 200
+    global-window: 1h
+    per-entity-daily-limit: 30
+  analytics:
+    zone: Asia/Tashkent
+    retention: 730d
+    default-period-days: 30
+    max-period-days: 366
+    per-client-limit: 120
+    per-client-window: 10m
+    global-limit: 20000
+    global-window: 1h
+  feedback:
+    per-client-limit: 30
+    per-client-window: 10m
+    global-limit: 5000
+    global-window: 1h
+  public-history:
+    backfill-enabled: true
+  translation:
+    # Background machine translation of drafts and category names into every active language (azure.translator.*
+    # supplies the provider). Jobs are queued on create/update/import/seed and processed in small batches; nothing is
+    # requested during start-up and existing translations are never replaced.
+    enabled: ${CATALOG_TRANSLATION_ENABLED:true}
+    batch-size: 5
+    initial-delay: PT30S
+    interval: PT20S
+    max-attempts: 8
+    lease: PT5M
+    backfill-max-limit: 200
+  reminders:
+    renotify-after: 14d
+    scan-initial-delay: PT2M
+    scan-interval: PT24H

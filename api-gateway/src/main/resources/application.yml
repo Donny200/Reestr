@@ -1,0 +1,57 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          globalcors:
+            add-to-simple-url-handler-mapping: true
+            cors-configurations:
+              '[/**]':
+                allowedOrigins:
+                  - http://localhost:3000
+                  - http://localhost:5173
+                allowedMethods:
+                  - GET
+                  - POST
+                  - PUT
+                  - PATCH
+                  - DELETE
+                  - OPTIONS
+                allowedHeaders:
+                  - "*"
+                allowCredentials: true
+          default-filters:
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_FIRST
+          routes:
+            - id: reference-service
+              uri: lb://reference-service
+              predicates:
+                - Path=/api/regions/**,/api/interface-translations/**,/api/translation-keys/**
+            - id: function-catalog-service
+              uri: lb://function-catalog-service
+              predicates:
+                - Path=/api/functions/**,/api/reports/**,/api/analytics/**,/api/feedback/**,/api/help/**,/api/appointments/**
+            - id: identity-service
+              uri: lb://identity-service
+              predicates:
+                - Path=/api/**
+# Visitor address handling: only the reverse proxy listed here may set X-Real-IP / X-Forwarded-For; every other caller
+# (for example a client that reaches port 8082 directly) gets X-Real-IP replaced with its real remote address, so the
+# per-client rate limits of identity-service and function-catalog-service cannot be bypassed by rotating headers.
+# Comma-separated IPs or CIDRs; Docker Compose sets the static address of the nginx container.
+gateway:
+  client-address:
+    header: X-Real-IP
+    trusted-proxies: ${GATEWAY_TRUSTED_PROXIES:}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  instance:
+    prefer-ip-address: true

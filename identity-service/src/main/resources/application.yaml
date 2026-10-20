@@ -1,0 +1,97 @@
+spring:
+  application:
+    name: identity-service
+
+  config:
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
+
+  datasource:
+    url: jdbc:postgresql://localhost:5433/adlita_project1
+    username: postgres
+    password: ${IDENTITY_DB_PASSWORD:${POSTGRES_PASSWORD}}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+
+springdoc:
+  swagger-ui:
+    path: /swagger
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+  refresh-expiration: 604800000
+
+  # SMTP for self-service password reset links is configured only through the environment
+  # (SPRING_MAIL_HOST, SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD, ...);
+  # without SPRING_MAIL_HOST no mail sender exists and the "Forgot password?" flow stays disabled.
+
+app:
+  cookie:
+    access-token-name: accessToken
+    refresh-token-name: refreshToken
+    refresh-token-path: /api/auth
+    mfa-challenge-name: mfaChallenge
+    mfa-challenge-path: /api/auth/mfa
+  password-reset:
+    token-ttl: ${PASSWORD_RESET_TOKEN_TTL:PT60M}
+    reset-path: /reset-password
+    public-base-url: ${PUBLIC_BASE_URL:}
+    client-address-header: X-Real-IP
+    per-client-limit: 5
+    per-client-window: 15m
+    global-limit: 100
+    global-window: 1h
+    mail:
+      enabled: ${PASSWORD_RESET_MAIL_ENABLED:false}
+      from: ${PASSWORD_RESET_MAIL_FROM:}
+  mfa:
+    # Second factor for SUPER_ADMIN and ORG_ADMIN accounts (TOTP). Disabled unless MFA_ENABLED=true; while disabled no
+    # encryption key is needed and enrollment data stays untouched in the database. When enabling (again), supply the
+    # MFA_ENCRYPTION_KEY that encrypted the existing secrets (openssl rand -base64 32 for a fresh installation).
+    # MFA_ENROLLMENT_DEADLINE (ISO-8601 instant) lets existing staff keep signing in with the password alone until
+    # that moment while being asked to enroll.
+    enabled: ${MFA_ENABLED:false}
+    encryption-key: ${MFA_ENCRYPTION_KEY:}
+    enrollment-deadline: ${MFA_ENROLLMENT_DEADLINE:}
+    issuer: ${MFA_ISSUER:ReestrGov}
+    challenge-ttl: PT5M
+    max-attempts-per-challenge: 5
+    client-address-header: X-Real-IP
+    per-client-limit: 10
+    per-client-window: 15m
+    global-limit: 1000
+    global-window: 1h
+  login:
+    # Brute-force protection of the password step: attempts per client address (header set by nginx / the gateway)
+    # and failed attempts per submitted e-mail address; both counters live in memory per instance.
+    client-address-header: X-Real-IP
+    per-client-limit: 20
+    per-client-window: 15m
+    per-account-limit: 10
+    per-account-window: 15m
+    global-limit: 2000
+    global-window: 1h
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:5173
+
+server:
+  port: 8081
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  instance:
+    prefer-ip-address: true

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+tests/
+.env
+.env.*
+!.env.example
+*.log
+.vscode/
+.idea/

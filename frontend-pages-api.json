@@ -1,0 +1,435 @@
+{
+  "document": {
+    "title": "Frontend pages → backend requests",
+    "purpose": "Карта страниц для фронтендера: какую реальную ссылку вызывать, что отправлять и что получать.",
+    "source": "Проект не содержит frontend routes, поэтому страницы ниже предложены по модулям backend.",
+    "relatedCompleteContract": "./api-contract.json"
+  },
+  "api": {
+    "baseUrl": "http://localhost:8082",
+    "urlFormat": "Все реальные URL строятся как http://localhost:8082 + path. В текущем backend нет префикса /api/v1.",
+    "requestDefaults": {
+      "headers": { "Content-Type": "application/json" },
+      "credentials": "include",
+      "fetchExample": "fetch(url, { method, headers: {'Content-Type': 'application/json'}, credentials: 'include', body: JSON.stringify(data) })"
+    },
+    "authentication": {
+      "loginResult": "POST /api/auth/login устанавливает HttpOnly accessToken; refreshToken выдаётся только после обязательной смены bootstrap-пароля.",
+      "protectedRequests": "Не передавать Authorization header. Браузер должен автоматически отправить cookies благодаря credentials: 'include'.",
+      "forcedPasswordChange": "Если mustChangePassword=true, направить на /settings/security. До успешной смены пароля backend разрешает только /api/auth/me, /api/auth/change-password, /api/auth/logout и повторный login.",
+      "on401": "Вызвать POST http://localhost:8082/api/auth/refresh без body. При 200 повторить исходный запрос; при 401 открыть /login.",
+      "logout": "POST http://localhost:8082/api/auth/logout и перейти на /login."
+    }
+  },
+  "pages": [
+    {
+      "page": "Страница входа",
+      "frontendRoute": "/login",
+      "access": "public",
+      "requests": [
+        {
+          "action": "Войти",
+          "method": "POST",
+          "url": "http://localhost:8082/api/auth/login",
+          "accepts": {
+            "email": "string, обязательное, корректный email",
+            "password": "string, обязательное"
+          },
+          "requestExample": { "email": "super-admin@example.com", "password": "<deployment-secret>" },
+          "success": {
+            "status": 200,
+            "body": { "id": 1, "firstName": "Super", "lastName": "Admin", "email": "super-admin@example.com", "phone": null, "role": "ROLE_SUPER_ADMIN", "enabled": true, "mustChangePassword": true, "organizationIds": [] },
+            "sideEffect": "Если mustChangePassword=true, refreshToken не выдаётся и пользователь направляется на /settings/security; иначе направить по его role."
+          },
+          "errors": [400, 401, 403]
+        }
+      ]
+    },
+    {
+      "page": "Инициализация приложения и профиль",
+      "frontendRoute": "/app или /profile",
+      "access": "authenticated",
+      "requests": [
+        {
+          "action": "Получить текущего пользователя при запуске приложения",
+          "method": "GET",
+          "url": "http://localhost:8082/api/auth/me",
+          "accepts": null,
+          "success": { "status": 200, "bodyFields": ["id", "firstName", "lastName", "email", "phone", "role", "enabled", "organizationIds"] },
+          "errors": [401]
+        },
+        {
+          "action": "Изменить пароль",
+          "method": "POST",
+          "url": "http://localhost:8082/api/auth/change-password",
+          "accepts": { "currentPassword": "string, обязательное", "newPassword": "string, обязательное, 8–100 символов" },
+          "requestExample": { "currentPassword": "oldPassword", "newPassword": "newPassword123" },
+          "success": { "status": 200, "body": "Password changed successfully.", "sideEffect": "Replaces accessToken and refreshToken cookies with a session whose mustChangePassword claim is false." },
+          "errors": [400, 401]
+        },
+        {
+          "action": "Выйти",
+          "method": "POST",
+          "url": "http://localhost:8082/api/auth/logout",
+          "accepts": null,
+          "success": { "status": 200, "body": null, "sideEffect": "Очищает accessToken и refreshToken cookies" }
+        }
+      ]
+    },
+    {
+      "page": "Публичный каталог организаций",
+      "frontendRoute": "/organizations",
+      "access": "public",
+      "requests": [
+        {
+          "action": "Загрузить активные организации",
+          "method": "GET",
+          "url": "http://localhost:8082/api/public/organizations",
+          "accepts": null,
+          "success": { "status": 200, "body": "[{ id: number, name: string, description: string | null }]" }
+        },
+        {
+          "action": "Открыть одну активную организацию",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/public/organizations/{id}",
+          "pathParams": { "id": "number, ID организации" },
+          "success": { "status": 200, "body": "{ id, name, description }" },
+          "errors": [404]
+        }
+      ]
+    },
+    {
+      "page": "Публичная страница организации / каталог услуг",
+      "frontendRoute": "/organizations/:organizationId/functions",
+      "access": "public",
+      "requests": [
+        {
+          "action": "Загрузить функции выбранной организации",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/functions?organizationId={organizationId}",
+          "queryParams": { "organizationId": "number, необязательный; фильтр по организации" },
+          "success": { "status": 200, "body": "[{ id, name, description, organizationId, requirements, category }]" }
+        },
+        {
+          "action": "Фильтровать каталог по категории",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/functions?category={category}",
+          "queryParams": { "category": "string, необязательный; точное совпадение с учётом регистра" },
+          "success": { "status": 200, "body": "[{ id, name, description, organizationId, requirements, category }]" }
+        },
+        {
+          "action": "Открыть одну услугу",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/functions/{id}",
+          "pathParams": { "id": "number, ID функции" },
+          "success": { "status": 200, "body": "{ id, name, description, organizationId, requirements, category }" },
+          "errors": [404]
+        }
+      ],
+      "notes": "Не отправлять organizationId и category вместе: backend выберет только organizationId."
+    },
+    {
+      "page": "Публичные справочники",
+      "frontendRoute": "/reference-data или данные формы",
+      "access": "public",
+      "requests": [
+        {
+          "action": "Получить регионы для select",
+          "method": "GET",
+          "url": "http://localhost:8082/api/regions",
+          "success": { "status": 200, "body": "[{ id: number, name: string, code: string }]" }
+        },
+        {
+          "action": "Получить один регион",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/regions/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "{ id, name, code }" },
+          "errors": [404]
+        },
+        {
+          "action": "Получить добавленные языки для language switcher/select",
+          "method": "GET",
+          "url": "http://localhost:8082/api/languages",
+          "success": { "status": 200, "body": "[{ id: number, code: string, name: string, nativeName: string | null, defaultLanguage: boolean }]" }
+        }
+      ]
+    },
+    {
+      "page": "Управление организациями",
+      "frontendRoute": "/admin/organizations",
+      "access": "ROLE_SUPER_ADMIN для create/edit/deactivate; любой авторизованный пользователь может читать",
+      "requests": [
+        {
+          "action": "Загрузить список организаций для таблицы",
+          "method": "GET",
+          "url": "http://localhost:8082/api/organizations",
+          "success": { "status": 200, "body": "[{ id, name, description, enabled, createdAt }]" }
+        },
+        {
+          "action": "Создать организацию",
+          "method": "POST",
+          "url": "http://localhost:8082/api/organizations",
+          "accepts": { "name": "string, обязательное, максимум 150", "description": "string | null, максимум 500" },
+          "requestExample": { "name": "Ministry of Justice", "description": "Public services" },
+          "success": { "status": 201, "body": "{ id, name, description, enabled, createdAt }" },
+          "errors": [400, 401, 403, 409]
+        },
+        {
+          "action": "Обновить организацию",
+          "method": "PUT",
+          "urlTemplate": "http://localhost:8082/api/organizations/{id}",
+          "pathParams": { "id": "number" },
+          "accepts": { "name": "string | null, максимум 150; null не изменяет", "description": "string | null, максимум 500; null не изменяет" },
+          "requestExample": { "name": "Updated organization", "description": "Updated description" },
+          "success": { "status": 200, "body": "{ id, name, description, enabled, createdAt }" },
+          "errors": [400, 401, 403, 404, 409]
+        },
+        {
+          "action": "Деактивировать организацию",
+          "method": "DELETE",
+          "urlTemplate": "http://localhost:8082/api/organizations/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "Organization deactivated successfully." },
+          "errors": [401, 403, 404, 409],
+          "notes": "409, если есть активный ORG_ADMIN или MODERATOR этой организации."
+        }
+      ]
+    },
+    {
+      "page": "Управление администраторами организаций",
+      "frontendRoute": "/admin/org-admins",
+      "access": "Нужны permissions ORG_ADMINS_VIEW/CREATE/EDIT/DEACTIVATE соответственно",
+      "requests": [
+        {
+          "action": "Загрузить кандидатов на повышение до org admin",
+          "method": "GET",
+          "url": "http://localhost:8082/api/admin/org-admins/candidates",
+          "accessOverride": "ORG_ADMINS_CREATE",
+          "success": { "status": 200, "body": "UserResponse[] без password" }
+        },
+        {
+          "action": "Загрузить org admins",
+          "method": "GET",
+          "url": "http://localhost:8082/api/admin/org-admins",
+          "success": { "status": 200, "body": "UserResponse[]: [{ id, firstName, lastName, email, phone, role, enabled, organizationIds }]" }
+        },
+        {
+          "action": "Создать org admin",
+          "method": "POST",
+          "url": "http://localhost:8082/api/admin/org-admins",
+          "accepts": { "firstName": "string, обязательное, максимум 70", "lastName": "string, обязательное, максимум 70", "email": "email, обязательное", "password": "string, обязательное, 8–100", "phone": "string | null, максимум 20", "organizationId": "number, обязательное" },
+          "requestExample": { "firstName": "Ali", "lastName": "Karimov", "email": "ali@example.uz", "password": "securepass123", "phone": "+998901234567", "organizationId": 1 },
+          "success": { "status": 201, "body": "UserResponse" },
+          "errors": [400, 401, 403, 404, 409]
+        },
+        {
+          "action": "Повысить существующего пользователя до org admin",
+          "method": "POST",
+          "url": "http://localhost:8082/api/admin/org-admins/promote",
+          "accepts": { "userId": "number, обязательное", "organizationId": "number, обязательное" },
+          "requestExample": { "userId": 12, "organizationId": 1 },
+          "success": { "status": 200, "body": "UserResponse" }
+        },
+        {
+          "action": "Обновить org admin",
+          "method": "PUT",
+          "urlTemplate": "http://localhost:8082/api/admin/org-admins/{id}",
+          "pathParams": { "id": "number" },
+          "accepts": { "firstName": "string | null, максимум 70", "lastName": "string | null, максимум 70", "phone": "string | null, максимум 20", "organizationId": "number | null; при передаче заменяет организацию", "enabled": "boolean | null" },
+          "requestExample": { "phone": "+998909999999", "organizationId": 2, "enabled": true },
+          "success": { "status": 200, "body": "UserResponse" }
+        },
+        {
+          "action": "Деактивировать org admin",
+          "method": "DELETE",
+          "urlTemplate": "http://localhost:8082/api/admin/org-admins/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "Org admin deactivated successfully." }
+        }
+      ]
+    },
+    {
+      "page": "Управление модераторами",
+      "frontendRoute": "/admin/moderators",
+      "access": "Нужны permissions MODERATORS_VIEW/CREATE/EDIT/DEACTIVATE. ORG_ADMIN может работать только в своих организациях.",
+      "requests": [
+        {
+          "action": "Загрузить кандидатов на повышение до moderator в доступной области организаций",
+          "method": "GET",
+          "url": "http://localhost:8082/api/admin/moderators/candidates",
+          "accessOverride": "MODERATORS_CREATE",
+          "success": { "status": 200, "body": "UserResponse[] без password" }
+        },
+        {
+          "action": "Загрузить доступных moderators",
+          "method": "GET",
+          "url": "http://localhost:8082/api/admin/moderators",
+          "success": { "status": 200, "body": "UserResponse[]" }
+        },
+        {
+          "action": "Создать moderator",
+          "method": "POST",
+          "url": "http://localhost:8082/api/admin/moderators",
+          "accepts": { "firstName": "string, обязательное, максимум 70", "lastName": "string, обязательное, максимум 70", "email": "email, обязательное", "password": "string, обязательное, 8–100", "phone": "string | null, максимум 20", "organizationIds": "number[], обязательный непустой массив" },
+          "requestExample": { "firstName": "Vali", "lastName": "Aliyev", "email": "vali@example.uz", "password": "securepass123", "phone": "+998901111111", "organizationIds": [1, 2] },
+          "success": { "status": 201, "body": "UserResponse" },
+          "errors": [400, 401, 403, 404, 409]
+        },
+        {
+          "action": "Повысить пользователя до moderator",
+          "method": "POST",
+          "url": "http://localhost:8082/api/admin/moderators/promote",
+          "accepts": { "userId": "number, обязательное", "organizationIds": "number[], обязательный непустой массив" },
+          "requestExample": { "userId": 15, "organizationIds": [1] },
+          "success": { "status": 200, "body": "UserResponse" }
+        },
+        {
+          "action": "Обновить moderator",
+          "method": "PUT",
+          "urlTemplate": "http://localhost:8082/api/admin/moderators/{id}",
+          "pathParams": { "id": "number" },
+          "accepts": { "firstName": "string | null, максимум 70", "lastName": "string | null, максимум 70", "phone": "string | null, максимум 20", "organizationIds": "number[], обязательный непустой массив; полностью заменяет организации", "enabled": "boolean | null" },
+          "requestExample": { "firstName": "Valijon", "organizationIds": [1], "enabled": true },
+          "success": { "status": 200, "body": "UserResponse" }
+        },
+        {
+          "action": "Деактивировать moderator",
+          "method": "DELETE",
+          "urlTemplate": "http://localhost:8082/api/admin/moderators/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "Moderator deactivated successfully." }
+        }
+      ]
+    },
+    {
+      "page": "Роли и permissions",
+      "frontendRoute": "/admin/roles",
+      "access": "Просмотр требует ROLES_VIEW; создание, удаление и назначение ролей требуют ROLE_SUPER_ADMIN; управление permissions доступно ROLE_SUPER_ADMIN или ROLES_MANAGE_PERMISSIONS.",
+      "requests": [
+        {
+          "action": "Загрузить роли",
+          "method": "GET",
+          "url": "http://localhost:8082/api/roles",
+          "success": { "status": 200, "body": "[{ id, name, permissions: [{ id, code, name, category }] }]" }
+        },
+        {
+          "action": "Загрузить все permissions для чекбоксов",
+          "method": "GET",
+          "url": "http://localhost:8082/api/permissions",
+          "accessOverride": "ROLE_SUPER_ADMIN",
+          "success": { "status": 200, "body": "[{ id, code, name, category }]" }
+        },
+        {
+          "action": "Создать роль",
+          "method": "POST",
+          "url": "http://localhost:8082/api/roles",
+          "accepts": { "name": "string; backend нормализует регистр, пробелы/дефисы и добавит ROLE_" },
+          "requestExample": { "name": "manager" },
+          "success": { "status": 201, "body": "{ id, name: 'ROLE_MANAGER', permissions: [] }" }
+        },
+        {
+          "action": "Заменить permissions роли после выбора чекбоксов",
+          "method": "PUT",
+          "urlTemplate": "http://localhost:8082/api/roles/{id}/permissions",
+          "pathParams": { "id": "number" },
+          "accepts": { "permissionIds": "number[], обязательное; [] очистит все permissions" },
+          "requestExample": { "permissionIds": [1, 2, 3] },
+          "success": { "status": 200, "body": "RoleEntity" }
+        },
+        {
+          "action": "Назначить роль пользователю",
+          "method": "POST",
+          "url": "http://localhost:8082/api/roles/assign",
+          "accepts": { "userId": "number, обязательное", "roleId": "number, обязательное" },
+          "requestExample": { "userId": 12, "roleId": 3 },
+          "success": { "status": 200, "body": "string" }
+        },
+        {
+          "action": "Удалить роль",
+          "method": "DELETE",
+          "urlTemplate": "http://localhost:8082/api/roles/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "Role deleted successfully." },
+          "notes": "Системные и назначенные пользователям роли удалить нельзя."
+        }
+      ]
+    },
+    {
+      "page": "Настройка языков",
+      "frontendRoute": "/admin/languages",
+      "access": "ROLE_SUPER_ADMIN для поиска, добавления и удаления",
+      "requests": [
+        {
+          "action": "Загрузить добавленные языки",
+          "method": "GET",
+          "url": "http://localhost:8082/api/languages",
+          "success": { "status": 200, "body": "Language[]" }
+        },
+        {
+          "action": "Искать среди ISO-639-1 языков",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/languages/search?q={query}",
+          "queryParams": { "q": "string, обязательное, поисковая строка" },
+          "success": { "status": 200, "body": "[{ code, name, nativeName, alreadyAdded }]" },
+          "errors": [401, 403]
+        },
+        {
+          "action": "Добавить найденный язык",
+          "method": "POST",
+          "url": "http://localhost:8082/api/languages",
+          "accepts": { "code": "ISO-639-1 string, например de" },
+          "requestExample": { "code": "de" },
+          "success": { "status": 200, "body": "{ id, code, name, nativeName, defaultLanguage: false }" },
+          "errors": [400, 401, 403, 404, 409]
+        },
+        {
+          "action": "Удалить добавленный не-default язык",
+          "method": "DELETE",
+          "urlTemplate": "http://localhost:8082/api/languages/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 204, "body": null },
+          "errors": [401, 403, 404, 409]
+        }
+      ]
+    },
+    {
+      "page": "Редактирование требований услуги",
+      "frontendRoute": "/admin/functions/:id/edit",
+      "access": "ROLE_SUPER_ADMIN или ROLE_ORG_ADMIN. ORG_ADMIN редактирует только функции своей организации.",
+      "requests": [
+        {
+          "action": "Загрузить функцию для формы",
+          "method": "GET",
+          "urlTemplate": "http://localhost:8082/api/functions/{id}",
+          "pathParams": { "id": "number" },
+          "success": { "status": 200, "body": "{ id, name, description, organizationId, requirements, category }" }
+        },
+        {
+          "action": "Сохранить requirements",
+          "method": "PUT",
+          "urlTemplate": "http://localhost:8082/api/functions/{id}/requirements",
+          "pathParams": { "id": "number" },
+          "accepts": { "requirements": "string, обязательное, непустое" },
+          "requestExample": { "requirements": "Old passport, 1 photo, application fee" },
+          "success": { "status": 200, "body": "{ id, name, description, organizationId, requirements, category }" },
+          "errors": [400, 401, 403, 404]
+        }
+      ]
+    }
+  ],
+  "notRecommendedForNewFrontend": [
+    {
+      "urlPrefix": "http://localhost:8082/api/user",
+      "reason": "Compatibility API доступен только ROLE_SUPER_ADMIN и использует безопасные DTO без password. Для новых staff-сценариев использовать scoped org-admin/moderator endpoints."
+    },
+    {
+      "url": "http://localhost:8082/api/admin/dashboard",
+      "reason": "Возвращает только строку Hello ADMIN, не предоставляет реальные dashboard данные."
+    }
+  ],
+  "backendErrorShape": {
+    "identityService": { "status": 400, "error": "Bad Request", "message": "Validation failed", "fieldErrors": { "email": "Invalid email" } },
+    "referenceAndFunctionServices": { "timestamp": "2026-08-04T10:00:00", "status": 404, "error": "Not Found", "message": "..." }
+  }
+}
