@@ -13,6 +13,7 @@ import { buttonVariants } from '../../components/ui/buttonVariants';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { Toolbar } from '../../components/ui/Toolbar';
 import { FunctionErrorState } from '../../features/functions/FunctionErrorState';
+import { TranslationBackfillButton } from '../../features/functions/TranslationBackfillButton';
 import { useAdminFunctions, useFunctionOptions } from '../../features/functions/queries';
 import { useI18n } from '../../contexts/i18n';
 import { useAuth } from '../../contexts/auth';
@@ -177,12 +178,15 @@ export function AdminFunctionsPage() {
         title={t('nav.functions')}
         description={t('fnAdmin.subtitle', 'Drafts, review queue and published services.')}
         actions={
-          hasPermission('FUNCTIONS_CREATE') ? (
-            <Link to="/admin/functions/new" className={buttonVariants({ variant: 'dark', size: 'sm' })}>
-              <PlusIcon aria-hidden="true" />
-              {t('fnAdmin.create')}
-            </Link>
-          ) : undefined
+          <>
+            <TranslationBackfillButton />
+            {hasPermission('FUNCTIONS_CREATE') && (
+              <Link to="/admin/functions/new" className={buttonVariants({ variant: 'dark', size: 'sm' })}>
+                <PlusIcon aria-hidden="true" />
+                {t('fnAdmin.create')}
+              </Link>
+            )}
+          </>
         }
       />
 
@@ -246,7 +250,7 @@ export function AdminFunctionsPage() {
                   options={[
                     { value: '', label: t('status.all') },
                     { value: 'due', label: t('verification.filterDue', 'Needs recheck') },
-                    { value: 'verified', label: t('verification.status.VERIFIED', 'Verified') },
+                    { value: 'verified', label: t('verification.status.VERIFIED', 'Verified by organization') },
                   ]}
                 />
               )}
@@ -288,7 +292,7 @@ export function AdminFunctionsPage() {
       <Card>
         {canView ? (
           <>
-            <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`} />
+            <Toolbar summary={t('home.resultsCount', { count: rows.length })} />
             <DataTable
               columns={columns}
               data={rows}

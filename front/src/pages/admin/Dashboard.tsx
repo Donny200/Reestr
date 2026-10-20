@@ -10,15 +10,17 @@ import { DataTable } from '../../components/ui/DataTable';
 import { StatCard } from '../../components/ui/StatCard';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { useOrganizations } from '../../features/organizations/queries';
+import { useOrganizationNames } from '../../features/organizations/useOrganizationNames';
 import { useAdminFunctions } from '../../features/functions/queries';
 import { useReminders } from '../../features/analytics/queries';
 import { useReports } from '../../features/reports/queries';
-import { canViewReports, reportStatusLabel } from '../../features/reports/reportOptions';
+import { canViewReports } from '../../features/reports/reportOptions';
 import { needsRecheck } from '../../utils/verification';
 import { useModerators, useOrgAdmins } from '../../features/staff/queries';
 import { useAuth } from '../../contexts/auth';
 import { useI18n } from '../../contexts/i18n';
 import { functionText } from '../../utils/functionLocalization';
+import { useCategoryNames } from '../../features/functions/useCategoryNames';
 import { formatDate, fullName, roleLabel, truncate } from '../../utils/format';
 import { FUNCTION_STATUSES, type AdminFunction } from '../../types/adminFunctions';
 import type { Organization } from '../../types/api';
@@ -41,15 +43,16 @@ export function Dashboard() {
 
   const orgList = useMemo(() => organizations.data ?? [], [organizations.data]);
   const fnList = useMemo(() => functions.data ?? [], [functions.data]);
-  const activeLabel = t('status.active').toLowerCase();
-  const organizationName = useCallback((id: number | null) => orgList.find((item) => item.id === id)?.name ?? '—', [orgList]);
+  const categoryName = useCategoryNames();
+  const organizationNames = useOrganizationNames(organizations.data);
+  const organizationName = useCallback((id: number | null) => (id == null ? undefined : organizationNames.get(id)) ?? '—', [organizationNames]);
 
   const cards = [
     {
       key: 'organizations',
       label: t('admin.summaryOrgs'),
       value: orgList.length,
-      hint: `${orgList.filter((item) => item.enabled).length} ${activeLabel}`,
+      hint: t('admin.activeCount', { count: orgList.filter((item) => item.enabled).length }),
       icon: BuildingIcon,
       to: '/admin/organizations',
       loading: organizations.isPending,
@@ -59,7 +62,7 @@ export function Dashboard() {
       key: 'org-admins',
       label: t('admin.summaryOrgAdmins'),
       value: (orgAdmins.data ?? []).length,
-      hint: `${(orgAdmins.data ?? []).filter((item) => item.enabled).length} ${activeLabel}`,
+      hint: t('admin.activeCount', { count: (orgAdmins.data ?? []).filter((item) => item.enabled).length }),
       icon: ShieldCheckIcon,
       to: '/admin/org-admins',
       loading: orgAdmins.isPending,
@@ -69,7 +72,7 @@ export function Dashboard() {
       key: 'moderators',
       label: t('admin.summaryModerators'),
       value: (moderators.data ?? []).length,
-      hint: `${(moderators.data ?? []).filter((item) => item.enabled).length} ${activeLabel}`,
+      hint: t('admin.activeCount', { count: (moderators.data ?? []).filter((item) => item.enabled).length }),
       icon: UsersIcon,
       to: '/admin/moderators',
       loading: moderators.isPending,
@@ -79,7 +82,7 @@ export function Dashboard() {
       key: 'functions',
       label: t('admin.summaryFunctions'),
       value: fnList.length,
-      hint: `${fnList.filter((item) => item.status === 'PUBLISHED').length} ${t('fnAdmin.status.PUBLISHED').toLowerCase()}`,
+      hint: t('admin.publishedCount', { count: fnList.filter((item) => item.status === 'PUBLISHED').length }),
       icon: FileTextIcon,
       to: '/admin/functions',
       loading: functions.isPending,
@@ -109,7 +112,7 @@ export function Dashboard() {
       key: 'reports',
       label: t('reports.dashboardTitle', 'Open reports'),
       value: (openReports.data ?? []).length,
-      hint: `${(openReports.data ?? []).filter((item) => item.status === 'NEW').length} ${reportStatusLabel('NEW', t).toLowerCase()}`,
+      hint: t('reports.newCount', { count: (openReports.data ?? []).filter((item) => item.status === 'NEW').length }),
       icon: FlagIcon,
       to: '/admin/reports',
       loading: openReports.isPending,
@@ -144,7 +147,7 @@ export function Dashboard() {
         header: t('field.name'),
         cell: ({ row }) => (
           <Link to={`/organizations/${row.original.id}`} className="rounded-sm font-medium text-foreground underline-offset-4 wrap-anywhere fine:hover:underline">
-            {row.original.name}
+            {organizationName(row.original.id)}
           </Link>
         ),
       },
@@ -156,7 +159,7 @@ export function Dashboard() {
         cell: ({ row }) => <span className="tabular-nums text-secondary">{formatDate(row.original.createdAt, locale)}</span>,
       },
     ],
-    [t, locale],
+    [t, locale, organizationName],
   );
 
   const functionColumns = useMemo<ColumnDef<AdminFunction>[]>(
@@ -180,7 +183,7 @@ export function Dashboard() {
         header: t('field.category'),
         enableSorting: false,
         meta: { hideBelow: 'lg' },
-        cell: ({ row }) => (row.original.category ? <Badge size="sm" tone="accent">{row.original.category}</Badge> : <span className="text-secondary">—</span>),
+        cell: ({ row }) => (row.original.category ? <Badge size="sm" tone="accent">{categoryName(row.original.categoryId, row.original.category)}</Badge> : <span className="text-secondary">—</span>),
       },
       {
         id: 'organization',
@@ -190,7 +193,7 @@ export function Dashboard() {
         cell: ({ row }) => <span className="text-secondary">{organizationName(row.original.organizationId)}</span>,
       },
     ],
-    [t, locale, organizationName],
+    [t, locale, organizationName, categoryName],
   );
 
   return (

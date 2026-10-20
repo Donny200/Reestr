@@ -108,9 +108,9 @@ export function AssignmentsSection({ organizationId, organizationName, showOrgan
           />
           {counts && (
             <p className="text-sm text-secondary" aria-live="polite">
-              <span className="tabular-nums">{counts.assigned}</span> {t('assignments.state.ASSIGNED', 'Assigned').toLowerCase()} ·{' '}
-              <span className="tabular-nums">{counts.unassigned}</span> {t('assignments.state.UNASSIGNED', 'Unassigned').toLowerCase()} ·{' '}
-              <span className="tabular-nums font-semibold text-foreground">{counts.needsReassignment}</span> {t('assignments.state.NEEDS_REASSIGNMENT', 'Needs reassignment').toLowerCase()}
+              <span className="tabular-nums">{t('assignments.assignedCount', { count: counts.assigned })}</span> ·{' '}
+              <span className="tabular-nums">{t('assignments.unassignedCount', { count: counts.unassigned })}</span> ·{' '}
+              <span className="tabular-nums font-semibold text-foreground">{t('assignments.reassignCount', { count: counts.needsReassignment })}</span>
             </p>
           )}
         </div>

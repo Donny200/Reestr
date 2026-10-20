@@ -6,6 +6,7 @@ import { useI18n } from '../../contexts/i18n';
 import { localizedText } from '../../utils/translations';
 import { SaveServiceButton } from '../../features/saved/SaveServiceButton';
 import { formatDate } from '../../utils/format';
+import { useCategoryNames } from '../../features/functions/useCategoryNames';
 
 interface FunctionListRowProps {
   item: CatalogFunction;
@@ -19,6 +20,7 @@ export function FunctionListRow({ item, index, organizationName, reason }: Funct
   const { t, locale } = useI18n();
   const name = localizedText(item.name, item.nameTranslations, locale);
   const description = localizedText(item.description, item.descriptionTranslations, locale);
+  const category = useCategoryNames()(item.categoryId, item.category);
 
   return (
     <ListRow
@@ -30,7 +32,7 @@ export function FunctionListRow({ item, index, organizationName, reason }: Funct
       meta={
         <>
           <Badge size="sm">{organizationName ?? t('fn.organizationUnknown', 'Organization unknown')}</Badge>
-          {item.category && <Badge size="sm" tone="accent">{item.category}</Badge>}
+          {category && <Badge size="sm" tone="accent">{category}</Badge>}
           {reason && <span className="text-xs text-secondary">{reason}</span>}
           {item.lastUpdatedAt && (
             <span className="text-xs tabular-nums text-secondary">{t('history.updatedOn', 'Updated')} {formatDate(item.lastUpdatedAt, locale)}</span>

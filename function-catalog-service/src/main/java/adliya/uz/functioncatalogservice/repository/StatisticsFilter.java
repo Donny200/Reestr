@@ -5,7 +5,6 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 
 import java.time.LocalDate;
 
-/** Organization scope and service category of an aggregate query over a daily-count table. */
 public record StatisticsFilter(OrganizationScope scope, Long categoryId) {
 
     static MapSqlParameterSource parameters(LocalDate from, LocalDate to) {

@@ -56,7 +56,7 @@ export function SlotPicker({ availability, loading, error, onRetry, date, onDate
                 >
                   <span className="text-sm font-semibold">{calendarDate(day.date, locale)}</span>
                   <span className={cn('text-xs tabular-nums', selected ? 'text-ink-secondary' : 'text-secondary')}>
-                    {!day.open ? t('appointments.closed', 'Closed') : free === 0 ? t('appointments.full', 'No free times') : `${free} ${t('appointments.freeTimes', 'free times')}`}
+                    {!day.open ? t('appointments.closed', 'Closed') : free === 0 ? t('appointments.full', 'No free times') : t('appointments.freeTimes', { count: free })}
                   </span>
                 </button>
               </li>

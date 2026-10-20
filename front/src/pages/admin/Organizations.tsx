@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Building2Icon, MoreHorizontalIcon, PencilIcon, PlusIcon, PowerIcon, PowerOffIcon, ShieldCheckIcon } from 'lucide-react';
+import { Building2Icon, LanguagesIcon, MoreHorizontalIcon, PencilIcon, PlusIcon, PowerIcon, PowerOffIcon, ShieldCheckIcon } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -14,6 +14,7 @@ import { Badge, StatusBadge, VerificationBadge } from '../../components/ui/Badge
 import { ConfirmModal } from '../../components/ui/Modal';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/DropdownMenu';
 import { OrganizationFormDialog } from '../../features/organizations/OrganizationFormDialog';
+import { OrganizationTranslationsDialog } from '../../features/organizations/OrganizationTranslationsDialog';
 import { useDeactivateOrganization, useOrganizations, useReactivateOrganization, useVerifyOrganization } from '../../features/organizations/queries';
 import { useAuth } from '../../contexts/auth';
 import { useI18n } from '../../contexts/i18n';
@@ -52,6 +53,7 @@ export function Organizations() {
   );
   const [dialog, setDialog] = useState<DialogState>(null);
   const [deactivating, setDeactivating] = useState<Organization | null>(null);
+  const [translating, setTranslating] = useState<Organization | null>(null);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -74,7 +76,7 @@ export function Organizations() {
   const verifyOrganization = useCallback(
     (organization: Organization) =>
       verifyMutate(organization.id, {
-        onSuccess: () => toast.success(t('verification.done', 'Marked as verified')),
+        onSuccess: () => toast.success(t('verification.done', 'Marked as verified by organization')),
         onError: (error) => toast.error(errorMessage(error, t)),
       }),
     [verifyMutate, t],
@@ -165,6 +167,12 @@ export function Organizations() {
                 </DropdownMenuItem>
               )}
               {canEdit(row.original) && (
+                <DropdownMenuItem onSelect={() => setTranslating(row.original)}>
+                  <LanguagesIcon />
+                  {t('orgs.translations')}
+                </DropdownMenuItem>
+              )}
+              {canEdit(row.original) && (
                 <DropdownMenuItem onSelect={() => verifyOrganization(row.original)}>
                   <ShieldCheckIcon />
                   {t('verification.verify', 'Mark as verified by organization')}
@@ -200,11 +208,11 @@ export function Organizations() {
         eyebrow={t('nav.admin')}
         title={t('orgs.title')}
         description={t('home.orgsSubtitle')}
-        badge={<Badge size="sm" tone="accent">{activeCount} {t('status.active').toLowerCase()}</Badge>}
+        badge={<Badge size="sm" tone="accent">{t('admin.activeCount', { count: activeCount })}</Badge>}
         actions={createButton('md')}
       />
       <Card>
-        <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`}>
+        <Toolbar summary={t('home.resultsCount', { count: rows.length })}>
           <SearchInput value={search} onChange={setSearch} label={t('action.search')} className="sm:w-64" />
           <Select
             value={status}
@@ -221,7 +229,7 @@ export function Organizations() {
             options={[
               { value: '', label: `${t('verification.column', 'Verification')} · ${t('status.all')}` },
               { value: 'due', label: t('verification.filterDue', 'Needs recheck') },
-              { value: 'verified', label: t('verification.status.VERIFIED', 'Verified') },
+              { value: 'verified', label: t('verification.status.VERIFIED', 'Verified by organization') },
             ]}
           />
         </Toolbar>
@@ -243,6 +251,11 @@ export function Organizations() {
         open={dialog !== null}
         organization={dialog?.mode === 'edit' ? dialog.organization : null}
         onClose={() => setDialog(null)}
+      />
+      <OrganizationTranslationsDialog
+        open={translating !== null}
+        organization={translating}
+        onClose={() => setTranslating(null)}
       />
       <ConfirmModal
         open={Boolean(deactivating)}

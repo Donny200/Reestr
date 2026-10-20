@@ -5,11 +5,15 @@ import adliya.uz.task1.dto.CreateOrganizationRequest;
 import adliya.uz.task1.dto.OfficialLink;
 import adliya.uz.task1.dto.OrganizationContact;
 import adliya.uz.task1.dto.UpdateOrganizationRequest;
+import adliya.uz.task1.dto.UpdateOrganizationTranslationsRequest;
+import adliya.uz.task1.entity.Language;
 import adliya.uz.task1.entity.Organization;
+import adliya.uz.task1.entity.TranslatedText;
 import adliya.uz.task1.entity.User;
 import adliya.uz.task1.exception.OrganizationAlreadyExistsException;
 import adliya.uz.task1.exception.OrganizationHasActiveMembersException;
 import adliya.uz.task1.exception.ResourceNotFoundException;
+import adliya.uz.task1.repository.LanguageRepository;
 import adliya.uz.task1.repository.OrganizationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,9 +22,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.IllformedLocaleException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -35,10 +44,13 @@ public class OrganizationService {
     private static final String FUNCTIONS_MANAGE_ANY_ORGANIZATION = "FUNCTIONS_MANAGE_ANY_ORGANIZATION";
     private static final Set<String> STAFF_ROLES = Set.of(
             SystemRole.ORG_ADMIN.authority(), SystemRole.MODERATOR.authority());
+    private static final int NAME_MAX_LENGTH = 150;
+    private static final int DESCRIPTION_MAX_LENGTH = 500;
 
     private final OrganizationRepository organizationRepository;
     private final OrganizationTranslationStateService translationStateService;
     private final UserService userService;
+    private final LanguageRepository languageRepository;
 
     @Transactional
     public Organization create(CreateOrganizationRequest request) {
@@ -94,6 +106,29 @@ public class OrganizationService {
             org.setVerificationOutdated(true);
         }
         translationStateService.invalidateMachineTranslations(org, nameChanged, descriptionChanged);
+        return organizationRepository.save(org);
+    }
+
+    /**
+     * Stores human translations of the official name and description. Organization names are official texts, so they
+     * are never machine translated; staff enter them here, with the same access as editing the profile.
+     */
+    @Transactional
+    public Organization updateTranslations(Long id, UpdateOrganizationTranslationsRequest request) {
+        requireUpdateAccess(id);
+        Organization org = getById(id);
+        Set<String> active = languageRepository.findAllByActiveTrue().stream()
+                .map(Language::getCode)
+                .filter(Objects::nonNull)
+                .map(code -> code.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        if (request.nameTranslations() != null) {
+            org.setNameTranslations(humanTranslations(request.nameTranslations(), active, NAME_MAX_LENGTH, "Name"));
+        }
+        if (request.descriptionTranslations() != null) {
+            org.setDescriptionTranslations(humanTranslations(request.descriptionTranslations(), active,
+                    DESCRIPTION_MAX_LENGTH, "Description"));
+        }
         return organizationRepository.save(org);
     }
 
@@ -189,6 +224,44 @@ public class OrganizationService {
         organization.setMapUrl(OfficialLink.normalize(contact.mapUrl()));
         organization.setRegionCode(text(contact.regionCode()));
         return !before.equals(OrganizationContact.of(organization));
+    }
+
+    private static Map<String, TranslatedText> humanTranslations(Map<String, String> values, Set<String> activeLanguages,
+                                                                 int maxLength, String field) {
+        Map<String, TranslatedText> result = new LinkedHashMap<>();
+        values.forEach((rawCode, rawText) -> {
+            String code = languageCode(rawCode);
+            if (!activeLanguages.contains(code)) {
+                throw new IllegalArgumentException("Language is not enabled: " + rawCode);
+            }
+            String value = text(rawText);
+            if (value == null) {
+                return;
+            }
+            if (value.length() > maxLength) {
+                throw new IllegalArgumentException(field + " translation (" + code + ") must be at most " + maxLength + " characters");
+            }
+            if (result.put(code, new TranslatedText(value, TranslatedText.HUMAN)) != null) {
+                throw new IllegalArgumentException("Duplicate language: " + rawCode);
+            }
+        });
+        return result;
+    }
+
+    /** Lower-case BCP 47 tag, the form the public site and function-catalog use to look translations up. */
+    private static String languageCode(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("Language code is required");
+        }
+        try {
+            Locale locale = new Locale.Builder().setLanguageTag(raw.strip().replace('_', '-')).build();
+            if (locale.getLanguage().isEmpty() || "und".equalsIgnoreCase(locale.toLanguageTag())) {
+                throw new IllegalArgumentException("Invalid BCP 47 language tag: " + raw);
+            }
+            return locale.toLanguageTag().toLowerCase(Locale.ROOT);
+        } catch (IllformedLocaleException exception) {
+            throw new IllegalArgumentException("Invalid BCP 47 language tag: " + raw, exception);
+        }
     }
 
     private static String text(String value) {

@@ -1,11 +1,13 @@
 package adliya.uz.referenceservice.service;
 
+import adliya.uz.referenceservice.catalog.SourceHash;
 import adliya.uz.referenceservice.config.CacheConfig;
 import adliya.uz.referenceservice.dto.CreateTranslationKeyRequest;
 import adliya.uz.referenceservice.dto.TranslationKeyResponse;
 import adliya.uz.referenceservice.dto.UpdateTranslationKeyRequest;
 import adliya.uz.referenceservice.entity.Translation;
 import adliya.uz.referenceservice.entity.TranslationKey;
+import adliya.uz.referenceservice.entity.TranslationSource;
 import adliya.uz.referenceservice.repository.TranslationKeyRepository;
 import adliya.uz.referenceservice.repository.TranslationRepository;
 import lombok.RequiredArgsConstructor;
@@ -13,6 +15,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +63,9 @@ public class TranslationKeyService {
                 .translationKey(key)
                 .languageCode(InterfaceTranslationDictionaryService.SOURCE_LANGUAGE_CODE)
                 .translationValue(defaultValue)
+                .source(TranslationSource.HUMAN)
+                .sourceHash(SourceHash.of(defaultValue))
+                .updatedAt(Instant.now())
                 .build());
         return TranslationKeyResponse.from(key, defaultValue);
     }

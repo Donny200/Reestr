@@ -19,9 +19,11 @@ import { useI18n } from '../../contexts/i18n';
 import { cn } from '../../lib/cn';
 import type { Language } from '../../types/api';
 import { errorMessage } from '../../utils/errors';
+import { languageDisplayName } from '../../lib/i18n/locale';
+import { TranslationCoverageCard } from '../../features/languages/TranslationCoverageCard';
 
 export function Languages() {
-  const { t, reloadLanguages } = useI18n();
+  const { t, locale, reloadLanguages } = useI18n();
   const languages = useLanguages();
   const add = useAddLanguage();
   const remove = useDeleteLanguage();
@@ -72,7 +74,7 @@ export function Languages() {
       },
       {
         accessorKey: 'code',
-        header: 'ISO / BCP-47',
+        header: t('lang.code', 'Code (BCP 47)'),
         cell: ({ row }) => <Badge size="sm">{row.original.code}</Badge>,
       },
       {
@@ -81,7 +83,7 @@ export function Languages() {
         cell: ({ row }) => (
           <span className="min-w-0">
             <span className="block font-medium text-foreground">{row.original.nativeName}</span>
-            <span className="block text-xs text-secondary">{row.original.name}</span>
+            <span className="block text-xs text-secondary">{languageDisplayName(row.original.code, locale)}</span>
           </span>
         ),
       },
@@ -107,7 +109,7 @@ export function Languages() {
           ),
       },
     ],
-    [t],
+    [t, locale],
   );
 
   return (
@@ -121,7 +123,7 @@ export function Languages() {
 
       <div className="grid gap-6 xl:grid-cols-5">
         <Card className="xl:col-span-3">
-          <Toolbar summary={`${(languages.data ?? []).length} ${t('home.resultsCount')}`} />
+          <Toolbar summary={t('home.resultsCount', { count: (languages.data ?? []).length })} />
           <DataTable
             columns={columns}
             data={languages.data ?? []}
@@ -136,7 +138,8 @@ export function Languages() {
           />
         </Card>
 
-        <Card className="h-fit xl:sticky xl:top-24 xl:col-span-2">
+        <div className="space-y-6 xl:col-span-2">
+        <Card className="h-fit">
           <CardHeader title={t('lang.searchTitle')} icon={<LanguagesIcon className="h-4 w-4" aria-hidden="true" />} />
           <CardBody className="space-y-4">
             <label className="block">
@@ -201,8 +204,11 @@ export function Languages() {
             <Button className="w-full" onClick={submitAdd} disabled={!codeToAdd || codeAlreadyAdded} loading={add.isPending} icon={<PlusIcon />}>
               {t('lang.addSelected')}
             </Button>
+            <p className="text-xs leading-5 text-secondary">{t('lang.addHint')}</p>
           </CardBody>
         </Card>
+        <TranslationCoverageCard />
+        </div>
       </div>
 
       <ConfirmModal

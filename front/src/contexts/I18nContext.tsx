@@ -1,21 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getInterfaceTranslations, getLanguages } from '../services/referenceService';
 import { readStored, writeStored } from '../lib/storage';
+import { readDictionary, writeDictionary } from '../lib/i18n/dictionaryStore';
+import { directionForLocale, sameLocale } from '../lib/i18n/locale';
+import { createTranslate, type Dictionary } from '../lib/i18n/translate';
 import { I18nContext, type I18nValue, type InterfaceLanguage } from './i18n';
 const DEFAULT_LOCALE = 'uz';
 const STORAGE_KEY = 'reestr-task-locale';
-const RTL_LANGUAGES = new Set(['ar', 'ckb', 'dv', 'fa', 'he', 'ku', 'ps', 'sd', 'ug', 'ur', 'yi']);
-const RTL_SCRIPTS = new Set(['Adlm', 'Arab', 'Hebr', 'Mand', 'Nkoo', 'Rohg', 'Samr', 'Syrc', 'Thaa']);
 const DICTIONARY_TIMEOUT_MS = 5_000;
+/** Shown only while the very first dictionary loads, before any translation is available (i18n-exempt). */
+const BOOT_LABELS: Record<string, string> = { en: 'Loading…', ru: 'Загрузка…', uz: 'Yuklanmoqda…', fr: 'Chargement…' };
 
-function directionForLocale(locale: string): 'ltr' | 'rtl' {
-  const parts = locale.replace(/_/g, '-').split('-');
-  const script = parts.find((part) => /^[A-Za-z]{4}$/.test(part));
-  if (script) {
-    const canonicalScript = `${script[0].toUpperCase()}${script.slice(1).toLowerCase()}`;
-    return RTL_SCRIPTS.has(canonicalScript) ? 'rtl' : 'ltr';
-  }
-  return RTL_LANGUAGES.has(parts[0].toLowerCase()) ? 'rtl' : 'ltr';
+interface Applied {
+  locale: string;
+  dictionary: Dictionary;
 }
 
 function initialLocale(): string {
@@ -23,18 +21,39 @@ function initialLocale(): string {
   return readStored(STORAGE_KEY) || DEFAULT_LOCALE;
 }
 
+function initialApplied(locale: string): Applied | null {
+  const stored = typeof window === 'undefined' ? null : readDictionary(locale);
+  return stored ? { locale, dictionary: stored } : null;
+}
+
+function sameDictionary(left: Dictionary, right: Dictionary): boolean {
+  const leftKeys = Object.keys(left);
+  if (leftKeys.length !== Object.keys(right).length) return false;
+  return leftKeys.every((key) => left[key] === right[key]);
+}
+
+/**
+ * Interface language state. The dictionary of the requested locale is fetched once per session (and revalidated with
+ * the server's ETag when a stored copy is shown first); labels, content language, formatting, `lang` and `dir` switch
+ * together only when it has arrived, so a slow or failed request never mixes two languages on screen.
+ */
 export function I18nProvider({ children }: {children: ReactNode;}) {
-  const [locale, setLocaleState] = useState<string>(initialLocale);
-  const [contentLocale, setContentLocale] = useState<string>(initialLocale);
+  const [requestedLocale, setRequestedLocale] = useState<string>(initialLocale);
+  const [applied, setApplied] = useState<Applied | null>(() => initialApplied(requestedLocale));
   const [available, setAvailable] = useState<InterfaceLanguage[]>([]);
-  const [translations, setTranslations] = useState<Record<string, string>>({});
-  const [ready, setReady] = useState(false);
-  const dictionaryCache = useRef(new Map<string, Record<string, string>>());
-  const lastSuccessfulLocale = useRef<string | null>(null);
+  const dictionaryCache = useRef(new Map<string, Dictionary>());
+  const appliedRef = useRef<Applied | null>(applied);
+  appliedRef.current = applied;
 
   const setLocale = useCallback((nextLocale: string) => {
-    setLocaleState(nextLocale);
+    setRequestedLocale((current) => (sameLocale(current, nextLocale) ? current : nextLocale));
     if (typeof window !== 'undefined') writeStored(STORAGE_KEY, nextLocale);
+  }, []);
+
+  const apply = useCallback((locale: string, dictionary: Dictionary) => {
+    setApplied((current) =>
+      current && current.locale === locale && sameDictionary(current.dictionary, dictionary) ? current : { locale, dictionary },
+    );
   }, []);
 
   const reloadLanguages = useCallback(async () => {
@@ -47,17 +66,11 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
 
       if (nextAvailable.length === 0) return;
       setAvailable(nextAvailable);
-      setLocaleState((current) => {
-        const currentLanguage = nextAvailable.find(
-          (language) => language.code.toLowerCase() === current.toLowerCase()
-        );
-        if (currentLanguage) {
-          if (typeof window !== 'undefined') writeStored(STORAGE_KEY, currentLanguage.code);
-          return currentLanguage.code;
-        }
-        const fallback = nextAvailable.find((language) => language.code === DEFAULT_LOCALE) ?? nextAvailable[0];
-        if (typeof window !== 'undefined') writeStored(STORAGE_KEY, fallback.code);
-        return fallback.code;
+      setRequestedLocale((current) => {
+        const currentLanguage = nextAvailable.find((language) => sameLocale(language.code, current));
+        const next = currentLanguage ?? nextAvailable.find((language) => language.code === DEFAULT_LOCALE) ?? nextAvailable[0];
+        if (typeof window !== 'undefined') writeStored(STORAGE_KEY, next.code);
+        return next.code;
       });
     } catch {
       setAvailable([]);
@@ -69,70 +82,84 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
   }, [reloadLanguages]);
 
   useEffect(() => {
-    document.documentElement.lang = contentLocale;
-    document.documentElement.dir = directionForLocale(contentLocale);
-  }, [contentLocale]);
+    const cached = dictionaryCache.current.get(requestedLocale);
+    if (cached) {
+      apply(requestedLocale, cached);
+      return undefined;
+    }
+    // A stored copy from an earlier visit is shown at once; the request below still refreshes it.
+    const stored = readDictionary(requestedLocale);
+    if (stored) apply(requestedLocale, stored);
 
-  useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), DICTIONARY_TIMEOUT_MS);
-    const cached = dictionaryCache.current.get(locale);
-    if (cached) {
-      lastSuccessfulLocale.current = locale;
-      setTranslations(cached);
-      setContentLocale(locale);
-      setReady(true);
-      window.clearTimeout(timeout);
-      return () => controller.abort();
-    }
-
-    getInterfaceTranslations(locale, controller.signal)
+    getInterfaceTranslations(requestedLocale, controller.signal)
       .then((dictionary) => {
-        dictionaryCache.current.set(locale, dictionary);
-        if (!cancelled) {
-          lastSuccessfulLocale.current = locale;
-          setTranslations(dictionary);
-          setContentLocale(locale);
-        }
+        dictionaryCache.current.set(requestedLocale, dictionary);
+        writeDictionary(requestedLocale, dictionary);
+        if (!cancelled) apply(requestedLocale, dictionary);
       })
       .catch(() => {
         if (cancelled) return;
-        const fallbackLocale = lastSuccessfulLocale.current;
-        if (fallbackLocale && fallbackLocale !== locale) {
-          setLocaleState(fallbackLocale);
-          writeStored(STORAGE_KEY, fallbackLocale);
-        } else {
-          setTranslations({});
+        const current = appliedRef.current;
+        if (stored) return;
+        if (current && !sameLocale(current.locale, requestedLocale)) {
+          // Switching failed: stay on the language that is fully on screen.
+          setRequestedLocale(current.locale);
+          writeStored(STORAGE_KEY, current.locale);
+        } else if (!current) {
+          apply(requestedLocale, {});
         }
       })
-      .finally(() => {
-        window.clearTimeout(timeout);
-        if (!cancelled) setReady(true);
-      });
+      .finally(() => window.clearTimeout(timeout));
 
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [locale]);
+  }, [requestedLocale, apply]);
 
-  const t = useCallback(
-    (key: string, fallback?: string): string => {
-      return translations[key] || fallback || key;
-    },
-    [translations]
-  );
+  const refreshDictionary = useCallback(async () => {
+    const locale = appliedRef.current?.locale ?? requestedLocale;
+    const dictionary = await getInterfaceTranslations(locale);
+    dictionaryCache.current.set(locale, dictionary);
+    writeDictionary(locale, dictionary);
+    apply(locale, dictionary);
+  }, [requestedLocale, apply]);
+
+  const locale = applied?.locale ?? requestedLocale;
+  const t = useMemo(() => createTranslate(applied?.dictionary ?? {}, locale), [applied, locale]);
+  const direction = directionForLocale(locale);
+
+  useEffect(() => {
+    if (!applied) return;
+    document.documentElement.lang = applied.locale;
+    document.documentElement.dir = direction;
+    document.title = t('app.documentTitle');
+    document.querySelector('meta[name="description"]')?.setAttribute('content', t('app.metaDescription'));
+  }, [applied, direction, t]);
 
   const value = useMemo<I18nValue>(
-    () => ({ locale, setLocale, t, available, reloadLanguages }),
-    [locale, setLocale, t, available, reloadLanguages]
+    () => ({
+      locale,
+      requestedLocale,
+      switching: !sameLocale(locale, requestedLocale),
+      direction,
+      setLocale,
+      t,
+      available,
+      reloadLanguages,
+      refreshDictionary,
+    }),
+    [locale, requestedLocale, direction, setLocale, t, available, reloadLanguages, refreshDictionary]
   );
 
-  if (!ready) {
+  if (!applied) {
+    const label = BOOT_LABELS[requestedLocale.split(/[-_]/)[0].toLowerCase()] ?? BOOT_LABELS.en;
     return (
-      <div className="flex min-h-dvh items-center justify-center" role="status" aria-label="Loading">
+      <div className="flex min-h-dvh items-center justify-center" role="status" aria-label={label}>
         <span className="h-8 w-8 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" aria-hidden="true" />
       </div>
     );

@@ -26,7 +26,7 @@ export function OrganizationInkCard({ organization, functionCount }: Organizatio
       <h3 lang={locale} className="mt-8 text-2xl font-semibold leading-tight wrap-anywhere">{name}</h3>
       {description && <p lang={locale} className="mt-3 flex-1 text-sm leading-6 text-ink-secondary wrap-anywhere">{truncate(description, 130)}</p>}
       <div className="mt-6">
-        <Badge tone="onInk" size="sm">{functionCount} {t('nav.functions')}</Badge>
+        <Badge tone="onInk" size="sm">{t('catalog.servicesCount', { count: functionCount })}</Badge>
       </div>
     </InkCard>
   );

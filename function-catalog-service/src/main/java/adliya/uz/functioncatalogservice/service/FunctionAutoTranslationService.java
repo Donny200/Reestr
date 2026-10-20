@@ -23,6 +23,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -49,11 +50,19 @@ public class FunctionAutoTranslationService {
             throw new TranslationUnavailableException(HttpStatus.SERVICE_UNAVAILABLE, "Automatic translation is not configured");
         }
 
-        List<String> targets = request.languages().stream()
+        String source = snapshot.language() == null ? null : snapshot.language().toLowerCase(Locale.ROOT);
+        if (translator.sourceUnsupported(source)) {
+            throw new TranslationUnavailableException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "The card's source language is not supported by the translator; enter translations manually");
+        }
+        List<String> requested = request.languages().stream()
                 .map(code -> code.toLowerCase(Locale.ROOT))
                 .distinct()
-                .filter(code -> !code.equals(snapshot.language()))
+                .filter(code -> !code.equals(source) && !MissingTranslations.sameWrittenLanguage(code, source))
                 .toList();
+        // Languages the provider cannot produce are skipped here and reported as unsupportedLanguages in the summary.
+        Set<String> unsupported = translator.unsupportedTargets(source, requested);
+        List<String> targets = requested.stream().filter(code -> !unsupported.contains(code)).toList();
         Map<String, String> names = generate(snapshot.name(), snapshot.names(), targets,
                 snapshot.language(), request.overwriteMachine(), MachineTranslationWorker.NAME_MAX_LENGTH);
         Map<String, String> descriptions = generate(snapshot.description(), snapshot.descriptions(), targets,
@@ -127,8 +136,12 @@ public class FunctionAutoTranslationService {
         }
         Map<String, String> result = translator.translateRequired(text, source, needed);
         Map<String, String> checked = new LinkedHashMap<>();
+        Set<String> rejected = translator.unsupportedTargets(source, needed);
         for (String code : needed) {
             String translated = result.get(code);
+            if ((translated == null || translated.isBlank()) && rejected.contains(code)) {
+                continue; // the provider refused this language during the request; the others are kept
+            }
             if (translated == null || translated.isBlank() || translated.length() > maxLength) {
                 throw new TranslationUnavailableException(HttpStatus.BAD_GATEWAY,
                         "Translation is incomplete or too long; try a manual translation");

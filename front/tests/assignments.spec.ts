@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { allPermissions, card, setup } from './fixtures';
+import { allPermissions, card, dictionary, setup } from './fixtures';
 import type { QualityReminder } from '../src/types/analytics';
 
 const staffPermissions = [...allPermissions.filter(permission => permission !== 'FUNCTIONS_MANAGE_ANY_ORGANIZATION'), 'FUNCTIONS_ASSIGN', 'ORG_ANALYTICS_VIEW', 'REPORTS_VIEW'];
@@ -18,7 +18,7 @@ test('an organization administrator assigns responsibility among active members 
   await expect(panel.getByText('ann@example.test').first()).toBeVisible();
   const assign = fixture.requests.find(request => request.method === 'PUT' && request.path === '/api/functions/1/assignee');
   expect(assign?.body).toEqual({ userId: 7 });
-  await expect(page.getByRole('main').getByText('Assignee change')).toBeVisible();
+  await expect(page.getByRole('main').getByText(dictionary('en')['fnAdmin.action.ASSIGNEE_CHANGE'])).toBeVisible();
   await panel.getByRole('button', { name: 'Remove assignment' }).click();
   await expect(panel.getByText('Nobody is assigned', { exact: false })).toBeVisible();
 

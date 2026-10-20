@@ -136,7 +136,14 @@ public class MachineTranslationWorker {
                     + "; machine translation applies to drafts (published cards are translated through a revision)");
             return Optional.empty();
         }
-        List<String> targets = MissingTranslations.targets(activeLanguages(), function.getSourceLanguage());
+        String source = MissingTranslations.normalize(function.getSourceLanguage());
+        if (translator.sourceUnsupported(source)) {
+            finish(job, TranslationJobStatus.DONE, now, sourceUnsupportedNote(source));
+            return Optional.empty();
+        }
+        List<String> all = MissingTranslations.targets(activeLanguages(), source);
+        String unsupportedNote = unsupportedNote(source, all);
+        List<String> targets = supportedOnly(source, all);
         List<Text> texts = new ArrayList<>();
         addText(texts, "name", function.getName(), NAME_MAX_LENGTH, null, function.getNameTranslations(), targets);
         addText(texts, "description", function.getDescription(), DESCRIPTION_MAX_LENGTH, null, function.getDescriptionTranslations(), targets);
@@ -144,10 +151,10 @@ public class MachineTranslationWorker {
             addText(texts, field.key(), field.get(function), field.maxLength(), field, function.instructionTranslationsOf(field), targets);
         }
         if (texts.isEmpty()) {
-            finish(job, TranslationJobStatus.DONE, now, null);
+            finish(job, TranslationJobStatus.DONE, now, unsupportedNote);
             return Optional.empty();
         }
-        return Optional.of(new Plan(function.getVersion(), MissingTranslations.normalize(function.getSourceLanguage()), texts));
+        return Optional.of(new Plan(function.getVersion(), source, texts, unsupportedNote));
     }
 
     private Outcome applyFunction(TranslationJob job, Plan plan, Map<Text, Map<String, String>> translated, Instant now) {
@@ -165,7 +172,7 @@ public class MachineTranslationWorker {
             return Outcome.SKIPPED;
         }
         Set<String> filled = new TreeSet<>();
-        List<String> notes = new ArrayList<>();
+        List<String> notes = plan.initialNotes();
         Map<String, TranslatedText> names = new LinkedHashMap<>(function.getNameTranslations());
         Map<String, TranslatedText> descriptions = new LinkedHashMap<>(function.getDescriptionTranslations());
         Map<String, Map<String, TranslatedText>> instructions = new LinkedHashMap<>();
@@ -209,14 +216,20 @@ public class MachineTranslationWorker {
             return Optional.empty();
         }
         String source = MissingTranslations.sourceLanguageOf(category);
-        List<Text> texts = new ArrayList<>();
-        addText(texts, "name", category.getName(), CATEGORY_MAX_LENGTH, null, category.getNameTranslations(),
-                MissingTranslations.targets(activeLanguages(), source));
-        if (texts.isEmpty()) {
-            finish(job, TranslationJobStatus.DONE, now, null);
+        if (translator.sourceUnsupported(source)) {
+            finish(job, TranslationJobStatus.DONE, now, sourceUnsupportedNote(source));
             return Optional.empty();
         }
-        return Optional.of(new Plan(category.getVersion(), source, texts));
+        List<String> all = MissingTranslations.targets(activeLanguages(), source);
+        String unsupportedNote = unsupportedNote(source, all);
+        List<Text> texts = new ArrayList<>();
+        addText(texts, "name", category.getName(), CATEGORY_MAX_LENGTH, null, category.getNameTranslations(),
+                supportedOnly(source, all));
+        if (texts.isEmpty()) {
+            finish(job, TranslationJobStatus.DONE, now, unsupportedNote);
+            return Optional.empty();
+        }
+        return Optional.of(new Plan(category.getVersion(), source, texts, unsupportedNote));
     }
 
     private Outcome applyCategory(TranslationJob job, Plan plan, Map<Text, Map<String, String>> translated, Instant now) {
@@ -230,7 +243,7 @@ public class MachineTranslationWorker {
             return Outcome.RETRY;
         }
         Set<String> filled = new TreeSet<>();
-        List<String> notes = new ArrayList<>();
+        List<String> notes = plan.initialNotes();
         Map<String, TranslatedText> names = new LinkedHashMap<>(category.getNameTranslations());
         merge(plan.texts().get(0), translated.getOrDefault(plan.texts().get(0), Map.of()), names, filled, notes);
         if (!filled.isEmpty()) {
@@ -295,6 +308,21 @@ public class MachineTranslationWorker {
         }
     }
 
+    private List<String> supportedOnly(String source, List<String> targets) {
+        Set<String> unsupported = translator.unsupportedTargets(source, targets);
+        return targets.stream().filter(code -> !unsupported.contains(code)).toList();
+    }
+
+    private String unsupportedNote(String source, List<String> targets) {
+        Set<String> unsupported = new TreeSet<>(translator.unsupportedTargets(source, targets));
+        return unsupported.isEmpty() ? null : "Not supported by Azure Translator: " + String.join(", ", unsupported)
+                + "; enter these translations manually";
+    }
+
+    private static String sourceUnsupportedNote(String source) {
+        return "Source language " + source + " is not supported by Azure Translator; enter translations manually";
+    }
+
     private Set<String> activeLanguages() {
         return languages.activeLanguageCodes().orElseThrow(() -> new TranslationUnavailableException(
                 HttpStatus.SERVICE_UNAVAILABLE, "Active languages are unavailable (identity-service); retry later"));
@@ -349,7 +377,15 @@ public class MachineTranslationWorker {
 
     public record RunResult(int claimed, int done, int retried, int skipped) {}
 
-    private record Plan(Long version, String source, List<Text> texts) {}
+    private record Plan(Long version, String source, List<Text> texts, String note) {
+        List<String> initialNotes() {
+            List<String> notes = new ArrayList<>();
+            if (note != null) {
+                notes.add(note);
+            }
+            return notes;
+        }
+    }
 
     private record Text(String key, String text, int maxLength, InstructionField field, List<String> needed) {}
 }

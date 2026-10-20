@@ -44,7 +44,10 @@ export function FunctionAutoTranslate({ record, language, blocked, busy }: Props
   const canTranslate = capabilities.data?.available === true;
   const automatic = capabilities.data?.automatic === true;
   const isDraft = isEditableStatus(record.status);
+  const unsupported = new Set((record.machineTranslation?.unsupportedLanguages ?? []).map((code) => code.toLowerCase()));
   const missing = available.map((item) => item.code).filter((code) => !hasFunctionTranslation(record, code));
+  const translatable = missing.filter((code) => !unsupported.has(code.toLowerCase()));
+  const manualOnly = missing.filter((code) => unsupported.has(code.toLowerCase()));
   const machine =
     record.nameTranslations?.[language]?.source === 'machine' || record.descriptionTranslations?.[language]?.source === 'machine';
   const job = record.machineTranslation ?? null;
@@ -94,6 +97,11 @@ export function FunctionAutoTranslate({ record, language, blocked, busy }: Props
           ) : (
             <p className="mt-0.5 text-secondary">{t('fnAdmin.allTranslated', 'Every active language is covered.')}</p>
           )}
+          {manualOnly.length > 0 && (
+            <p className="mt-0.5 text-xs text-secondary">
+              {t('fnAdmin.autoUnsupported', { languages: manualOnly.join(', ') })}
+            </p>
+          )}
           {automatic && (
             <p className="mt-0.5 text-xs text-secondary">
               {t('fnAdmin.autoBackground', 'Missing languages are translated automatically in the background; existing translations are never replaced.')}
@@ -103,8 +111,8 @@ export function FunctionAutoTranslate({ record, language, blocked, busy }: Props
       </div>
       {job?.status && <JobStatus job={job} locale={locale} t={t} />}
       <div className="flex flex-wrap gap-2">
-        {missing.length > 0 && (
-          <Button variant="dark" size="sm" icon={<SparklesIcon />} loading={translate.isPending} disabled={blocked || busy} onClick={() => void generate(missing)}>
+        {translatable.length > 0 && (
+          <Button variant="dark" size="sm" icon={<SparklesIcon />} loading={translate.isPending} disabled={blocked || busy} onClick={() => void generate(translatable)}>
             {t('fnAdmin.translate')}
           </Button>
         )}
@@ -159,7 +167,7 @@ function JobStatus({ job, locale, t }: { job: MachineTranslationSummary; locale:
         <span className="font-medium">{t(key, fallback)}</span>
         {details.length > 0 && <span className="text-secondary"> · {details.join(' · ')}</span>}
       </span>
-      {job.lastError && <span className="mt-1 block text-xs">{job.lastError}</span>}
+      {job.lastError && <span className="mt-1 block text-xs" lang="en">{job.lastError}</span>}
     </InlineAlert>
   );
 }

@@ -24,7 +24,8 @@ class InterfaceTranslationServiceTest {
             translationKeyRepository,
             translationRepository,
             dictionaryService,
-            new LanguageTagNormalizer()
+            new LanguageTagNormalizer(),
+            mock(InterfaceCoverageService.class)
     );
 
     @Test

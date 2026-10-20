@@ -45,4 +45,9 @@ public class TranslationKey {
     @Column(nullable = false)
     @Builder.Default
     private boolean active = true;
+
+    /** Owned by the shipped catalog; such keys are deactivated when they leave it. Administrator-created keys are not. */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean managed = false;
 }

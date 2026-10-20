@@ -34,7 +34,7 @@ import { useI18n } from '../../contexts/i18n';
 import { HELP_VIEW_PERMISSION } from '../../features/help/helpOptions';
 import { useLiveSupport } from '../../features/help/liveSupport';
 import { useHelpInboxUnread } from '../../features/help/queries';
-import { fullName, roleLabel } from '../../utils/format';
+import { formatDate, fullName, roleLabel } from '../../utils/format';
 
 const icons: Record<AdminNavItem['icon'], ComponentType<{ className?: string }>> = {
   functions: FileTextIcon,
@@ -79,7 +79,7 @@ function SidebarNav({ items, onNavigate, badges = {} }: { items: AdminNavItem[];
                     <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
                     <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
                     {(badges[item.to] ?? 0) > 0 && (
-                      <span className="rounded-pill bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-ink" aria-label={`${badges[item.to]} ${t('support.unreadConversations', 'conversations with unread messages')}`}>
+                      <span className="rounded-pill bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-ink" aria-label={t('support.unreadConversationsCount', { count: badges[item.to] ?? 0 })}>
                         {badges[item.to]}
                       </span>
                     )}
@@ -108,7 +108,7 @@ function SidebarFooter() {
 }
 
 export function AdminLayout() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { user, signOut } = useAuth();
   const location = useLocation();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -270,7 +270,7 @@ export function AdminLayout() {
                 <span>
                   <ShieldCheckIcon className="me-2 inline h-4 w-4 align-text-bottom" aria-hidden="true" />
                   {user.mfa.enrollmentDeadline
-                    ? `${t('mfa.bannerDeadline', 'Your role requires two-factor authentication. Set it up before')} ${new Date(user.mfa.enrollmentDeadline).toLocaleDateString()}.`
+                    ? t('mfa.deadlineDate', { date: formatDate(user.mfa.enrollmentDeadline, locale) })
                     : t('mfa.banner', 'Your role requires two-factor authentication. Set it up now.')}
                 </span>
                 <Link to="/settings/security#mfa" className="shrink-0 font-semibold underline-offset-4 fine:hover:underline">{t('mfa.setUp', 'Set up now')}</Link>

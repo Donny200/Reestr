@@ -86,7 +86,7 @@ export function ReportReviewDialog({ report, onClose }: ReportReviewDialogProps)
   const resetUpdate = update.reset;
   const current = detail.data ?? report;
   const canManage = canManageReports(hasPermission);
-  const serverNoteError = fieldErrorsOf(update.error).note;
+  const serverNoteError = fieldErrorsOf(update.error, t).note;
 
   useEffect(() => {
     setNote('');

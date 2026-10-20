@@ -26,6 +26,8 @@ export interface MachineTranslationSummary {
   lastError?: string | null;
   /** Active languages that still lack a complete translation. */
   missingLanguages: string[];
+  /** Active languages Azure Translator has no code for; they need a manual translation. */
+  unsupportedLanguages?: string[];
 }
 
 export interface AdminFunction extends Omit<CatalogFunction, 'organizationId' | 'categoryId' | 'sourceLanguage'> {

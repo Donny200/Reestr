@@ -10,8 +10,9 @@ import { useI18n } from '../../contexts/i18n';
 import type { ClosureKind, ClosureRequest, Schedule, Weekday, WorkingDay } from '../../types/appointments';
 import { WEEKDAYS } from '../../types/appointments';
 import { errorMessage, fieldErrorsOf } from '../../utils/errors';
+import { formatDuration } from '../../utils/format';
 import { InlineAlert } from '../functions/InlineAlert';
-import { calendarDate, closureKindLabels, weekdayLabels } from './format';
+import { calendarDate, closureKindLabels, weekdayName } from './format';
 import { useScheduleMutations } from './queries';
 
 const ZONES = ['Asia/Tashkent', 'Asia/Samarkand'];
@@ -34,6 +35,12 @@ function rowsOf(schedule: Schedule): Record<Weekday, DayRow> {
 /** Availability settings of one organization: working days and hours with a break, slot length, places, window, closures. */
 export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; canManage: boolean }) {
   const { t, locale } = useI18n();
+  const columnLabels = {
+    opens: t('appointments.opens', 'Opens'),
+    closes: t('appointments.closes', 'Closes'),
+    breakStarts: t('appointments.breakStarts', 'Break from'),
+    breakEnds: t('appointments.breakEnds', 'Break until'),
+  };
   const mutations = useScheduleMutations(schedule.organizationId);
   const [enabled, setEnabled] = useState(schedule.enabled);
   const [timeZone, setTimeZone] = useState(schedule.timeZone);
@@ -60,7 +67,7 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
         bookingHorizonDays: Number(horizon), minNoticeMinutes: Number(notice), visitorNote: note, weeklyHours });
       toast.success(t('appointments.scheduleSaved', 'Availability saved'));
     } catch (failure) {
-      const fields = fieldErrorsOf(failure);
+      const fields = fieldErrorsOf(failure, t);
       setError(Object.values(fields)[0] ?? errorMessage(failure, t));
     }
   };
@@ -77,7 +84,7 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
       setClosure({ kind: closure.kind, startDate: '', endDate: '', startTime: '', endTime: '', note: '' });
       toast.success(t('appointments.closureAdded', 'Closure added'));
     } catch (failure) {
-      const fields = fieldErrorsOf(failure);
+      const fields = fieldErrorsOf(failure, t);
       setClosureError(Object.values(fields)[0] ?? errorMessage(failure, t));
     }
   };
@@ -105,7 +112,7 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
                 </Field>
                 <Field label={t('appointments.slotLength', 'Appointment length')}>
                   {(control) => <Select {...control} size="sm" value={slotMinutes} onValueChange={setSlotMinutes}
-                    options={SLOT_LENGTHS.map((value) => ({ value: String(value), label: `${value} ${t('appointments.minutes', 'min')}` }))} />}
+                    options={SLOT_LENGTHS.map((value) => ({ value: String(value), label: formatDuration(value, 'minute', locale) }))} />}
                 </Field>
                 <Field label={t('appointments.capacity', 'Visitors at the same time')}>
                   {(control) => <Input {...control} type="number" min={1} max={50} value={capacity} onChange={(event) => setCapacity(event.target.value)} />}
@@ -116,8 +123,8 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
                 <Field label={t('appointments.notice', 'Minimum notice')}>
                   {(control) => <Select {...control} size="sm" value={notice} onValueChange={setNotice}
                     options={NOTICE.map((value) => ({ value: String(value), label: value === 0 ? t('appointments.noNotice', 'None')
-                      : value < 60 ? `${value} ${t('appointments.minutes', 'min')}` : value < 1440 ? `${value / 60} ${t('appointments.hours', 'h')}`
-                        : `${value / 1440} ${t('appointments.daysShort', 'd')}` }))} />}
+                      : value < 60 ? formatDuration(value, 'minute', locale) : value < 1440 ? formatDuration(value / 60, 'hour', locale)
+                        : formatDuration(value / 1440, 'day', locale) }))} />}
                 </Field>
               </div>
 
@@ -136,7 +143,7 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
                   <tbody>
                     {WEEKDAYS.map((day) => {
                       const row = days[day];
-                      const label = t(`appointments.weekday.${day}`, weekdayLabels[day]);
+                      const label = weekdayName(day, locale);
                       return (
                         <tr key={day} className="border-t border-line">
                           <td className="py-2 pe-3">
@@ -147,7 +154,7 @@ export function ScheduleEditor({ schedule, canManage }: { schedule: Schedule; ca
                           </td>
                           {(['opens', 'closes', 'breakStarts', 'breakEnds'] as const).map((key) => (
                             <td key={key} className="py-2 pe-3">
-                              <Input type="time" step={300} aria-label={`${label}: ${t(`appointments.${key}`, key)}`} disabled={!row.open} value={row[key]}
+                              <Input type="time" step={300} aria-label={`${label}: ${columnLabels[key]}`} disabled={!row.open} value={row[key]}
                                 onChange={(event) => setDay(day, { [key]: event.target.value })} className="min-h-10 py-1" />
                             </td>
                           ))}

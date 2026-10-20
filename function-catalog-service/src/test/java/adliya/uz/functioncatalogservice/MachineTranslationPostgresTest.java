@@ -59,7 +59,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -339,5 +341,148 @@ class MachineTranslationPostgresTest {
         assertThat(job.getLastError()).contains("Active languages are unavailable");
         verify(translator, never()).translateBatch(anyList(), any(), anyList());
         assertThat(functions.findById(card.getId()).orElseThrow().getStatus()).isEqualTo(FunctionStatus.DRAFT);
+    }
+
+    /** The mocked provider cannot write Cyrillic Uzbek, like Azure; every other language works. */
+    private void cyrillicUzbekUnsupported() {
+        when(translator.unsupportedTargets(any(), anyCollection())).thenAnswer(call -> {
+            java.util.Collection<String> to = call.getArgument(1);
+            return to.stream().filter("uz-cyrl"::equals).collect(java.util.stream.Collectors.toSet());
+        });
+        when(translator.translateBatch(anyList(), any(), anyList())).thenAnswer(call -> {
+            List<String> texts = call.getArgument(0);
+            List<String> to = call.getArgument(2);
+            return texts.stream().map(text -> to.stream().collect(java.util.stream.Collectors.toMap(code -> code, code -> code + ":" + text))).toList();
+        });
+    }
+
+    @Test void unsupportedActiveLanguagesAreReportedAndNeverBlockSupportedOnes() throws Exception {
+        when(languages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "ru", "uz-cyrl")));
+        cyrillicUzbekUnsupported();
+        OrgFunction card = service.create(new CreateOrgFunctionRequest("Legal aid", "Free advice", 10L, null, null));
+        card.getDescriptionTranslations().put("ru", new TranslatedText("Бесплатно", TranslatedText.HUMAN));
+        functions.saveAndFlush(card);
+
+        assertThat(worker.runDue(NOW).done()).isEqualTo(1);
+        verify(translator).translateBatch(eq(List.of("Legal aid")), eq("en"), eq(List.of("ru")));
+        verify(translator, never()).translateBatch(anyList(), any(), org.mockito.ArgumentMatchers.argThat(to -> to != null && to.contains("uz-cyrl")));
+        OrgFunction translated = functions.findById(card.getId()).orElseThrow();
+        assertThat(translated.getNameTranslations().get("ru").text()).isEqualTo("ru:Legal aid");
+        assertThat(translated.getDescriptionTranslations().get("ru")).isEqualTo(new TranslatedText("Бесплатно", TranslatedText.HUMAN));
+        assertThat(translated.getNameTranslations()).doesNotContainKey("uz-cyrl");
+        TranslationJob job = jobs.findByTargetTypeAndTargetId(TranslationTarget.FUNCTION, card.getId()).orElseThrow();
+        assertThat(job.getStatus()).isEqualTo(TranslationJobStatus.DONE);
+        assertThat(job.getLastError()).contains("Not supported by Azure Translator: uz-cyrl");
+
+        mvc.perform(get("/api/functions/" + card.getId() + "/admin")
+                        .with(authentication(TestPrincipals.staff(7L, List.of(10L), "FUNCTIONS_VIEW"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.machineTranslation.missingLanguages").value(org.hamcrest.Matchers.contains("uz-cyrl")))
+                .andExpect(jsonPath("$.machineTranslation.unsupportedLanguages").value(org.hamcrest.Matchers.contains("uz-cyrl")));
+
+        // Only unsupported gaps remain: a backfill does not queue the card again just to skip it.
+        TestPrincipals.login(TestPrincipals.superAdmin("FUNCTIONS_EDIT", "FUNCTIONS_TRANSLATIONS_EDIT"));
+        TranslationBackfillResponse backfill = queue.backfill(null, 10);
+        assertThat(backfill.queued()).isZero();
+    }
+
+    @Test void immediateTranslationSkipsUnsupportedLanguagesInsteadOfFailing() throws Exception {
+        cyrillicUzbekUnsupported();
+        when(translator.translateRequired(anyString(), eq("en"), anyList())).thenAnswer(call -> {
+            List<String> to = call.getArgument(2);
+            String text = call.getArgument(0);
+            return to.stream().collect(java.util.stream.Collectors.toMap(code -> code, code -> code + ":" + text));
+        });
+        OrgFunction card = service.create(new CreateOrgFunctionRequest("Legal aid", null, 10L, null, null));
+        mvc.perform(post("/api/functions/" + card.getId() + "/translate")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .content("{\"languages\":[\"ru\",\"uz-cyrl\"],\"overwriteMachine\":false}")
+                        .with(authentication(TestPrincipals.superAdmin("FUNCTIONS_EDIT", "FUNCTIONS_TRANSLATIONS_EDIT"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nameTranslations.ru.text").value("ru:Legal aid"))
+                .andExpect(jsonPath("$.nameTranslations['uz-cyrl']").doesNotExist());
+        verify(translator).translateRequired(eq("Legal aid"), eq("en"), eq(List.of("ru")));
+    }
+
+    @Test void unsupportedSourceLanguageFinishesWithANoteAndNoProviderCall() {
+        when(translator.sourceUnsupported("uz-cyrl")).thenReturn(true);
+        OrgFunction card = service.create(new CreateOrgFunctionRequest("Юридик ёрдам", null, 10L, null, null, null, "uz-cyrl", null, null));
+        assertThat(worker.runDue(NOW).done()).isEqualTo(1);
+        verify(translator, never()).translateBatch(anyList(), any(), anyList());
+        TranslationJob job = jobs.findByTargetTypeAndTargetId(TranslationTarget.FUNCTION, card.getId()).orElseThrow();
+        assertThat(job.getStatus()).isEqualTo(TranslationJobStatus.DONE);
+        assertThat(job.getLastError()).contains("Source language uz-cyrl is not supported");
+    }
+
+    @Test void publishedCardsAreBackfilledThroughDraftRevisionsWithoutChangingThePublicRow() throws Exception {
+        OrgFunction card = service.create(new CreateOrgFunctionRequest("Passport", "Public text", 10L, "Docs", null));
+        card.getNameTranslations().put("ru", new TranslatedText("Паспорт", TranslatedText.HUMAN));
+        functions.saveAndFlush(card);
+        service.submitForReview(card.getId());
+        OrgFunction published = service.publish(card.getId());
+        OrgFunction foreign = service.create(new CreateOrgFunctionRequest("Foreign", "Text", 20L, "Docs", null));
+        service.submitForReview(foreign.getId());
+        service.publish(foreign.getId());
+        OrgFunction underReview = service.create(new CreateOrgFunctionRequest("Licence", "Text", 10L, "Docs", null));
+        service.submitForReview(underReview.getId());
+        service.publish(underReview.getId());
+        OrgFunction pendingRevision = service.createRevision(underReview.getId());
+        service.submitForReview(pendingRevision.getId());
+        jdbc.update("UPDATE translation_jobs SET status = 'DONE'");
+        Long publishedVersion = functions.findById(published.getId()).orElseThrow().getVersion();
+        long auditBefore = audit.count();
+
+        TestPrincipals.login(TestPrincipals.staff(7L, List.of(10L), "FUNCTIONS_EDIT", "FUNCTIONS_TRANSLATIONS_EDIT"));
+        assertThat(queue.backfill(null, 10).revisionsCreated()).isZero(); // default: published cards untouched
+        assertThat(functions.findByRevisionOfId(published.getId())).isEmpty();
+
+        TranslationBackfillResponse first = queue.backfill(null, 10, true);
+        assertThat(first.revisionsCreated()).isEqualTo(1);
+        assertThat(first.skippedUnderReview()).isEqualTo(1);
+        assertThat(first.queued()).isEqualTo(1);
+        OrgFunction revision = functions.findByRevisionOfId(published.getId()).orElseThrow();
+        assertThat(revision.getStatus()).isEqualTo(FunctionStatus.DRAFT);
+        assertThat(functions.findByRevisionOfId(foreign.getId())).isEmpty(); // other organization: out of scope
+        assertThat(jobs.findByTargetTypeAndTargetId(TranslationTarget.FUNCTION, revision.getId()).orElseThrow().getStatus())
+                .isEqualTo(TranslationJobStatus.PENDING);
+        assertThat(audit.count()).isEqualTo(auditBefore + 1);
+        assertThat(audit.findAll()).anySatisfy(log -> {
+            assertThat(log.getAction()).isEqualTo(AuditAction.REVISION_CREATE);
+            assertThat(log.getPerformedByUserId()).isEqualTo(7L);
+        });
+
+        TranslationBackfillResponse second = queue.backfill(null, 10, true);
+        assertThat(second.revisionsCreated()).isZero();
+        assertThat(second.queued()).isZero();
+        assertThat(second.alreadyQueued()).isEqualTo(1);
+
+        when(translator.translateBatch(anyList(), eq("en"), anyList())).thenAnswer(call -> {
+            List<String> texts = call.getArgument(0);
+            List<String> to = call.getArgument(2);
+            return texts.stream().map(text -> to.stream().collect(java.util.stream.Collectors.toMap(code -> code, code -> code + ":" + text))).toList();
+        });
+        assertThat(worker.runDue(NOW).done()).isEqualTo(1);
+        OrgFunction translatedRevision = functions.findById(revision.getId()).orElseThrow();
+        assertThat(translatedRevision.getNameTranslations().get("ru")).isEqualTo(new TranslatedText("Паспорт", TranslatedText.HUMAN));
+        assertThat(translatedRevision.getNameTranslations().get("uz").text()).isEqualTo("uz:Passport");
+        assertThat(translatedRevision.getDescriptionTranslations().get("ru").text()).isEqualTo("ru:Public text");
+
+        OrgFunction publicRow = functions.findById(published.getId()).orElseThrow();
+        assertThat(publicRow.getStatus()).isEqualTo(FunctionStatus.PUBLISHED);
+        assertThat(publicRow.getVersion()).isEqualTo(publishedVersion);
+        assertThat(publicRow.getNameTranslations()).containsOnlyKeys("ru");
+        assertThat(publicRow.getDescriptionTranslations()).isEmpty();
+
+        // Complete revision: nothing to queue on a third call.
+        TranslationBackfillResponse third = queue.backfill(null, 10, true);
+        assertThat(third.queued()).isZero();
+        assertThat(third.revisionsCreated()).isZero();
+
+        mvc.perform(post("/api/functions/translations/backfill").param("includePublished", "true")
+                        .with(authentication(TestPrincipals.staff(7L, List.of(10L), "FUNCTIONS_EDIT", "FUNCTIONS_TRANSLATIONS_EDIT"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.revisionsCreated").value(0))
+                .andExpect(jsonPath("$.revisionsQueued").value(0))
+                .andExpect(jsonPath("$.skippedUnderReview").value(1));
     }
 }

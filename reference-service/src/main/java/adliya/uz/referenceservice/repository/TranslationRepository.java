@@ -44,6 +44,21 @@ public interface TranslationRepository extends JpaRepository<Translation, Long> 
             @Param("translationKeyIds") Collection<Long> translationKeyIds
     );
 
+    @Query("""
+            select translation
+            from Translation translation
+            join fetch translation.translationKey translationKey
+            where translation.languageCode in :languageCodes
+            """)
+    List<Translation> findAllByLanguages(@Param("languageCodes") Collection<String> languageCodes);
+
+    @Query("""
+            select translation
+            from Translation translation
+            join fetch translation.translationKey translationKey
+            """)
+    List<Translation> findAllWithKeys();
+
     Optional<Translation> findByLanguageCodeAndTranslationKey_TranslationKey(
             String languageCode,
             String translationKey

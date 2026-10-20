@@ -82,7 +82,7 @@ export function QuestionReviewDialog({ conversation, organizationName, onClose }
       setError(undefined);
     } catch (failure) {
       setFailed({ message, clientMessageId });
-      setError(fieldErrorsOf(failure).message ?? errorMessage(failure, t));
+      setError(fieldErrorsOf(failure, t).message ?? errorMessage(failure, t));
     }
   };
 
@@ -117,7 +117,7 @@ export function QuestionReviewDialog({ conversation, organizationName, onClose }
       await assign.mutateAsync({ id, userId: value ? Number(value) : null });
       toast.success(t('support.assigneeSaved', 'Responsible staff member updated'));
     } catch (failure) {
-      toast.error(fieldErrorsOf(failure).userId ?? errorMessage(failure, t));
+      toast.error(fieldErrorsOf(failure, t).userId ?? errorMessage(failure, t));
     }
   };
 

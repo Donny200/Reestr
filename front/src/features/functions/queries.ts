@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { useAuth } from '../../contexts/auth';
 import {
   assignFunction,
+  backfillTranslations,
   createFunction,
   createFunctionRevision,
   getAssigneeCandidates,
@@ -182,3 +183,11 @@ export const useUpdateFunctionRequirements = (id: number) =>
     await updateFunctionRequirements(id, { requirements });
     return getAdminFunction(id);
   });
+
+export function useBackfillTranslations() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (includePublished: boolean) => backfillTranslations(includePublished),
+    onSuccess: () => client.invalidateQueries({ queryKey: functionKeys.all }),
+  });
+}

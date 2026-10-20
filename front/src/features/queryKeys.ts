@@ -30,6 +30,7 @@ export const languageKeys = {
   all: ['languages'] as const,
   list: () => [...languageKeys.all, 'list'] as const,
   search: (query: string) => [...languageKeys.all, 'search', query] as const,
+  coverage: () => [...languageKeys.all, 'coverage'] as const,
 };
 
 export const legacyUserKeys = {

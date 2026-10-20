@@ -1,5 +1,10 @@
 server:
   port: 8084
+  # Dictionaries are ~80 KB of JSON (~22 KB compressed); compress them when no proxy in front does it.
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2048
 
 spring:
   application:
@@ -14,7 +19,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    # SQL logging floods the log during the catalog synchronization and dictionary reads; enable only for debugging.
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
   flyway:
     baseline-on-migrate: true
     baseline-version: 0
@@ -30,6 +36,30 @@ eureka:
 
 jwt:
   secret: ${JWT_SECRET}
+
+# Azure Translator: the same variables as function-catalog-service. Empty values keep machine translation of the
+# interface dictionary off; the curated catalog (src/main/resources/i18n/interface) is still applied on start-up.
+azure:
+  translator:
+    endpoint: ${AZURE_TRANSLATOR_ENDPOINT:}
+    key: ${AZURE_TRANSLATOR_KEY:}
+    region: ${AZURE_TRANSLATOR_REGION:}
+
+interface:
+  catalog:
+    # Insert/update curated catalog values on start-up (human edits are never replaced).
+    sync-on-startup: true
+  translation:
+    # Fill missing interface translations of active languages with Azure Translator in the background.
+    enabled: ${INTERFACE_TRANSLATION_ENABLED:true}
+    initial-delay: PT1M
+    interval: PT2M
+    scan-interval: PT15M
+    batch-size: 2
+    texts-per-request: 100
+    characters-per-request: 20000
+    max-attempts: 6
+    lease: PT10M
 
 springdoc:
   swagger-ui:

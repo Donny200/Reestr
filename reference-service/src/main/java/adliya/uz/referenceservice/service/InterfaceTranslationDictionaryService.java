@@ -8,14 +8,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,7 +24,7 @@ public class InterfaceTranslationDictionaryService {
     @Transactional(readOnly = true)
     public Map<String, String> getTranslations(String languageCode) {
         Map<String, String> result = dictionaryForCode(SOURCE_LANGUAGE_CODE);
-        for (String candidate : languageHierarchy(languageCode)) {
+        for (String candidate : LanguageHierarchy.of(languageCode)) {
             if (!SOURCE_LANGUAGE_CODE.equals(candidate)) {
                 result.putAll(dictionaryForCode(candidate));
             }
@@ -51,32 +46,5 @@ public class InterfaceTranslationDictionaryService {
             );
         }
         return dictionary;
-    }
-
-    private List<String> languageHierarchy(String languageCode) {
-        Locale locale = Locale.forLanguageTag(languageCode);
-        Set<String> hierarchy = new LinkedHashSet<>();
-        hierarchy.add(locale.getLanguage());
-
-        if (!locale.getScript().isBlank()) {
-            hierarchy.add(new Locale.Builder()
-                    .setLanguage(locale.getLanguage())
-                    .setScript(locale.getScript())
-                    .build()
-                    .toLanguageTag());
-        }
-
-        if (!locale.getCountry().isBlank()) {
-            Locale.Builder regional = new Locale.Builder()
-                    .setLanguage(locale.getLanguage())
-                    .setRegion(locale.getCountry());
-            if (!locale.getScript().isBlank()) {
-                regional.setScript(locale.getScript());
-            }
-            hierarchy.add(regional.build().toLanguageTag());
-        }
-
-        hierarchy.add(languageCode);
-        return new ArrayList<>(hierarchy);
     }
 }

@@ -7,7 +7,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-/** Appointment booking: abuse limits, how far ahead a visitor may book and how long contact details are kept. */
 @Component
 @ConfigurationProperties(prefix = "catalog.appointments")
 @Getter

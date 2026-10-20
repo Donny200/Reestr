@@ -211,7 +211,7 @@ export function LegacyUsers() {
       </InlineAlert>
 
       <Card>
-        <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`}>
+        <Toolbar summary={t('home.resultsCount', { count: rows.length })}>
           <SearchInput value={search} onChange={setSearch} label={t('action.search')} className="sm:w-64" />
           <Select
             value={role}

@@ -205,7 +205,7 @@ export function AppointmentManage() {
                     {moveError && <InlineAlert tone="danger">{moveError}</InlineAlert>}
                     <div className="flex flex-wrap gap-2">
                       <Button variant="dark" disabled={!slot} loading={actions.reschedule.isPending} onClick={() => void move()}>
-                        {slot ? `${t('appointments.moveTo', 'Move to')} ${slot.start}` : t('appointments.moveTo', 'Move to')}
+                        {slot ? t('appointments.moveToTime', { time: slot.start }) : t('appointments.moveTo', 'Move to')}
                       </Button>
                       <Button variant="ghost" onClick={() => { setMoving(false); setSlot(null); setMoveError(null); }}>{t('action.cancel', 'Cancel')}</Button>
                     </div>

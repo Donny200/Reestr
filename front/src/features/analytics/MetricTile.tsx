@@ -21,7 +21,7 @@ export function MetricTile({ label, value, previous, loading = false }: MetricTi
       ? value === 0
         ? t('analytics.noActivityBoth', 'No activity in either period')
         : t('analytics.noPreviousActivity', 'None in the previous period')
-      : `${percent.format(change ?? 0)} ${t('analytics.vsPrevious', 'vs previous period')}`;
+      : t('analytics.changeVsPrevious', { change: percent.format(change ?? 0) });
 
   return (
     <div className="rounded-card-sm border border-line bg-background p-4">

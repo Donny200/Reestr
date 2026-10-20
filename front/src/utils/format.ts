@@ -52,16 +52,41 @@ export function addDays(date: string, days: number): string {
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
+const unitFormats = new Map<string, Intl.NumberFormat>();
+
+export function formatPercent(value: number, locale: string): string {
+  try {
+    return new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(value);
+  } catch {
+    return `${Math.round(value * 1000) / 10}%`;
+  }
+}
+
+/** "30 min", "2 h", "1 d" in the interface language (CLDR unit names). */
+export function formatDuration(value: number, unit: 'minute' | 'hour' | 'day', locale: string): string {
+  const key = `${locale}|${unit}`;
+  let format = unitFormats.get(key);
+  if (!format) {
+    try {
+      format = new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'short' });
+    } catch {
+      format = new Intl.NumberFormat('en', { style: 'unit', unit, unitDisplay: 'short' });
+    }
+    unitFormats.set(key, format);
+  }
+  return format.format(value);
+}
+
 export function roleLabel(role: string, t?: Translate): string {
   switch (role) {
     case 'ROLE_SUPER_ADMIN':
       return t?.('role.superAdmin', 'Super admin') ?? 'Super admin';
     case 'ROLE_ORG_ADMIN':
-      return t?.('role.orgAdmin', 'Tashkilot admini') ?? 'Tashkilot admini';
+      return t?.('role.orgAdmin', 'Org admin') ?? 'Org admin';
     case 'ROLE_MODERATOR':
       return t?.('role.moderator', 'Moderator') ?? 'Moderator';
     case 'ROLE_USER':
-      return t?.('role.user', 'Foydalanuvchi') ?? 'Foydalanuvchi';
+      return t?.('role.user', 'User') ?? 'User';
     default:
       return role;
   }

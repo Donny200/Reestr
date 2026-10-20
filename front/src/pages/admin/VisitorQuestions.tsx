@@ -55,7 +55,7 @@ export function VisitorQuestions() {
             <span className={row.original.unreadCount > 0 ? 'font-semibold text-foreground' : 'font-medium text-foreground'}>
               {row.original.general ? t('support.generalContext', 'General support') : row.original.serviceName ?? scope.organizationName(row.original.organizationId)}
             </span>
-            {row.original.unreadCount > 0 && <Badge size="sm" tone="accent">{row.original.unreadCount} {t('support.unread', 'unread')}</Badge>}
+            {row.original.unreadCount > 0 && <Badge size="sm" tone="accent">{t('support.unreadCount', { count: row.original.unreadCount })}</Badge>}
           </span>
           {row.original.lastMessagePreview && (
             <span className="mt-1 block truncate text-sm text-secondary">
@@ -129,7 +129,7 @@ export function VisitorQuestions() {
             onValueChange={(value) => setParam({ sort: value === 'LAST_MESSAGE' ? '' : value })}
             options={[{ value: 'LAST_MESSAGE', label: t('support.sortLast', 'Newest message first') }, { value: 'UNREAD_FIRST', label: t('support.sortUnread', 'Unread first') }]} />
         </div>
-        <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`}>
+        <Toolbar summary={t('home.resultsCount', { count: rows.length })}>
           <LiveStatus channel="staff" pollSeconds={INBOX_POLL_MS / 1000} />
           {filtered && <Link to="/admin/questions" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>{t('action.reset', 'Reset')}</Link>}
           {scope.global && <Badge size="sm">{t('support.globalScope', 'You see every organization and central support')}</Badge>}

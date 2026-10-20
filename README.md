@@ -29,15 +29,16 @@
 9. [Устранение неполадок](#9-устранение-неполадок)
 10. [Стандарты чистого кода и участия в разработке](#10-стандарты-чистого-кода-и-участия-в-разработке)
 11. [Структура репозитория](#11-структура-репозитория)
-12. [Изменения от 15.10.2026: автоперевод, MFA, очистка](#12-изменения-от-15102026-автоперевод-mfa-очистка)
-13. [Изменения от 16.10.2026: отчёты Excel/PDF, вопросы посетителей, памятка, удаление сравнения](#13-изменения-от-16102026-отчёты-excelpdf-вопросы-посетителей-памятка-удаление-сравнения)
-14. [Изменения от 16.10.2026 (2): страница поддержки с постоянной перепиской](#14-изменения-от-16102026-2-страница-поддержки-с-постоянной-перепиской)
+12. [Локализация и перевод](#12-локализация-и-перевод)
+13. [Развёртывание изменений локализации и backfill](#13-развёртывание-изменений-локализации-и-backfill)
 
 ---
 
 ## 1. Краткий обзор
 
 ReestrGov — это реестр государственных услуг («функций»), предоставляемых государственными организациями. Граждане просматривают публичный многоязычный каталог организаций и услуг без входа в систему: структурированные инструкции, контакты организаций, пошаговый подбор услуги, сохранение услуг в браузере, печать и PDF-памятка по услуге, отправка ссылки, страница «Поддержка» с постоянной личной перепиской (без учётной записи; в ней же — сообщения о неверной информации). Сотрудники входят в административную консоль для управления организациями, учётными записями сотрудников, ролями и правами, языками интерфейса и переводами, а также для ведения редакционного процесса карточек услуг (черновик, проверка, публикация, деактивация, повторная активация) с возможностью машинного перевода через Azure Translator.
+
+Весь интерфейс (публичный сайт, вход, консоль, ошибки, уведомления, подписи доступности, документы Excel/PDF) берёт тексты из одного каталога ключей с проверенными переводами на английский, русский, узбекский (латиница) и французский; языки, добавленные позже, дозаполняются машинным переводом в фоне. Как это устроено — в [разделе 12](#12-локализация-и-перевод) и [docs/localization.md](docs/localization.md).
 
 Платформа представляет собой набор микросервисов Spring Boot за Spring Cloud Gateway, зарегистрированных в реестре сервисов Netflix Eureka, каждый из которых владеет собственной базой данных PostgreSQL и собственной историей миграций Flyway. Одностраничное приложение на React, собранное с помощью Vite и обслуживаемое Nginx, обращается к шлюзу через same-origin прокси `/api/`, благодаря чему HttpOnly-cookie аутентификации работают без какой-либо настройки CORS в браузере.
 
@@ -98,7 +99,7 @@ ReestrGov — это реестр государственных услуг («�
 | `eureka-server` | 8761 (только внутри Compose) | Реестр сервисов и обнаружение. Не регистрирует сам себя; режим самосохранения отключён для быстрой локальной работы. | нет |
 | `api-gateway` | 8082 (на хосте только `127.0.0.1`) | Единая точка входа для SPA. Маршрутизирует по пути к идентификаторам сервисов `lb://`, разрешаемым через Eureka, применяет глобальный CORS для dev-источников (`localhost:3000`, `localhost:5173`) с учётными данными и устраняет дублирование CORS-заголовков ответа. | нет |
 | `identity-service` | 8081 (только внутри Compose) | Аутентификация (вход, обновление токена, выход, смена пароля), выпуск JWT, управление пользователями и сотрудниками, организации, роли, права и реестр языков интерфейса. Создаёт первого `SUPER_ADMIN`. | `adlita_project1` |
-| `reference-service` | 8084 (только внутри Compose) | Справочные данные: регионы, словари переводов интерфейса для каждого языка и ключи переводов с отчётами о покрытии и пробелах. Кэширует запросы с помощью Caffeine. | `reference_service_db` |
+| `reference-service` | 8084 (только внутри Compose) | Справочные данные: регионы и словари интерфейса. При старте синхронизирует каталог `src/main/resources/i18n/interface/*.json` с базой (ручные правки не заменяются), отдаёт словарь каждого языка (Caffeine + ETag), считает полноту переводов и в фоне заполняет недостающие тексты активных языков через Azure Translator. | `reference_service_db` |
 | `function-catalog-service` | 8085 (только внутри Compose) | Публичный и административный каталог услуг («функций»), категории, редакционный процесс с правами, журнал аудита, импорт CSV, ручные переводы и переводы через Azure. | `function_catalog_db` |
 | `front` | 3000 → 80 | SPA на Vite/React, обслуживаемое Nginx с gzip, неизменяемым кэшированием ресурсов, SPA-фолбэком, `/healthz` и same-origin обратным прокси `/api/` на `api-gateway:8082`. | нет |
 | `postgres` | `127.0.0.1:5433` → 5432 | PostgreSQL 16 с init-скриптом, который создаёт три базы данных при первом запуске. | том `pgdata` |
@@ -119,9 +120,9 @@ ReestrGov — это реестр государственных услуг («�
 
 | Сервис | Базовые пути |
 | --- | --- |
-| identity-service | `/api/auth` (login, refresh, logout, me, change-password, `password-reset/options`, `password-reset/request`, `password-reset/complete`), `/api/user` (вкл. `POST /{id}/password-reset` только для SUPER_ADMIN), `/api/admin/moderators`, `/api/admin/org-admins`, `/api/organizations` (вкл. `/{id}/verify`), `/api/public/organizations`, `/api/roles` (вкл. `/assign`, `/{id}/permissions`), `/api/permissions`, `/api/languages` (вкл. `/catalog`) |
-| reference-service | `/api/regions`, `/api/interface-translations/{languageCode}` (а также `/exact`, `/missing`, `/coverage`), `/api/translation-keys` |
-| function-catalog-service | `/api/functions` (публичный список и детали, `/admin`, `/{id}/admin`, `/pending-review`, `/{id}/submit-for-review`, `/{id}/withdraw`, `/{id}/publish`, `/{id}/reject`, `/{id}/reactivate`, `POST /{id}/revisions`, `DELETE /{id}/revision`, `/{id}/requirements`, `/{id}/translations`, `/{id}/translate`, `/{id}/verify`, `/{id}/audit`, `/import`, `/translation-capabilities`, публичный `GET /{id}/guide.pdf`), `/api/functions/categories`, `/api/reports` (анонимный `POST`, `GET`, `GET /{id}`, `GET /{id}/history`, `PUT /{id}/status`, `GET /export?format=CSV\|XLSX\|PDF`), `/api/analytics` (анонимный `POST /events`, `GET /summary`, `/engagement`, `/engagement/export`, `/report/export?format=XLSX\|PDF`, `/quality-queue`, `/quality-queue/export`, `/reminders`, `POST /reminders/{id}/acknowledge`), `/api/help` (посетитель по HttpOnly-cookie или учётной записи: `GET /options`, `GET /support`, `/support/updates`, `/support/unread`, `POST /support/messages`, `POST /support/read`, `PUT /support/contact`, `POST /support/recovery-code`, `POST /support/recover`, `DELETE /support/session`; для сотрудников `GET /inbox`, `/inbox/unread`, `/inbox/{id}`, `POST /inbox/{id}/read`, `POST /inbox/{id}/replies`, `PUT /inbox/{id}/status`, `GET /inbox/{id}/candidates`, `PUT /inbox/{id}/assignee`) |
+| identity-service | `/api/auth` (login, refresh, logout, me, change-password, `password-reset/options`, `password-reset/request`, `password-reset/complete`), `/api/user` (вкл. `POST /{id}/password-reset` только для SUPER_ADMIN), `/api/admin/moderators`, `/api/admin/org-admins`, `/api/organizations` (вкл. `/{id}/verify` и `PUT /{id}/translations` — ручные переводы названия и описания), `/api/public/organizations`, `/api/roles` (вкл. `/assign`, `/{id}/permissions`), `/api/permissions`, `/api/languages` (вкл. `/catalog`) |
+| reference-service | `/api/regions`, `/api/interface-translations/{languageCode}` (а также `/exact`, `/missing`, `/coverage`; `PUT` и `DELETE /{languageCode}/{key}` для ручных правок), `GET /api/interface-translations/overview` (полнота и состояние машинного перевода всех активных языков), `POST /api/interface-translations/{languageCode}/machine-translation` (поставить язык в очередь / повторить), `/api/translation-keys` |
+| function-catalog-service | `/api/functions` (публичный список и детали, `/admin`, `/{id}/admin`, `/pending-review`, `/{id}/submit-for-review`, `/{id}/withdraw`, `/{id}/publish`, `/{id}/reject`, `/{id}/reactivate`, `POST /{id}/revisions`, `DELETE /{id}/revision`, `/{id}/requirements`, `/{id}/translations`, `/{id}/translate`, `/{id}/verify`, `/{id}/audit`, `/import`, `/translation-capabilities`, `/{id}/translation-job`, `POST /translations/backfill?includePublished=&organizationId=&limit=`, публичный `GET /{id}/guide.pdf`), `/api/functions/categories`, `/api/reports` (анонимный `POST`, `GET`, `GET /{id}`, `GET /{id}/history`, `PUT /{id}/status`, `GET /export?format=CSV\|XLSX\|PDF`), `/api/analytics` (анонимный `POST /events`, `GET /summary`, `/engagement`, `/engagement/export`, `/report/export?format=XLSX\|PDF`, `/quality-queue`, `/quality-queue/export`, `/reminders`, `POST /reminders/{id}/acknowledge`), `/api/help` (посетитель по HttpOnly-cookie или учётной записи: `GET /options`, `GET /support`, `/support/updates`, `/support/unread`, `POST /support/messages`, `POST /support/read`, `PUT /support/contact`, `POST /support/recovery-code`, `POST /support/recover`, `DELETE /support/session`; для сотрудников `GET /inbox`, `/inbox/unread`, `/inbox/{id}`, `POST /inbox/{id}/read`, `POST /inbox/{id}/replies`, `PUT /inbox/{id}/status`, `GET /inbox/{id}/candidates`, `PUT /inbox/{id}/assignee`) |
 
 Каждый сервис предоставляет Swagger UI по адресу `http://localhost:<port>/swagger` и документ OpenAPI по адресу `/v3/api-docs`.
 
@@ -132,7 +133,7 @@ SPA находится в `front/` и организовано по функци
 - `src/components/ui` — дизайн-система (Button, Card, DataTable, Field, Input, Select, Modal, DropdownMenu, Tooltip, Badge, Skeleton, Toolbar, ThemeToggle), построенная на токенах Tailwind, примитивах Radix и class-variance-authority.
 - `src/features/*` содержит хуки TanStack Query, схемы zod и диалоги для каждого домена (functions, organizations, staff, roles, legacy users, languages, reference).
 - `src/pages` содержит публичные страницы (`/`, `/organizations/:id`, `/functions/:id`, `/finder`, `/saved`, `/support`; старые `/help` и `/help/conversation` перенаправляют на `/support`), `/login` и административную консоль (`/admin`, `/admin/functions`, `/admin/functions/new`, `/admin/functions/:id`, `/admin/reports`, `/admin/questions`, `/admin/organization-dashboard`, `/admin/organizations`, `/admin/moderators`, `/admin/org-admins`, `/admin/roles`, `/admin/languages`, `/admin/users`, `/settings/security`).
-- `src/contexts` предоставляет аутентификацию, тему (светлая, тёмная, системная) и i18n. Словарь UI загружается из reference-service для каждой локали, и каждая подпись разрешается через `t('key', 'fallback')`.
+- `src/contexts` предоставляет аутентификацию, тему (светлая, тёмная, системная) и i18n. Словарь UI загружается из reference-service для выбранной локали (последний полученный словарь хранится в `localStorage` и показывается сразу при следующем визите), каждая видимая строка разрешается через `t('key')` с интерполяцией `{name}` и формами множественного числа CLDR; язык, направление письма (`dir="rtl"`), даты, числа и названия языков переключаются одновременно, когда словарь получен. `npm run i18n:check` запрещает строки в обход `t()`.
 - `src/services/http.ts` — единственный HTTP-клиент. Он всегда отправляет `credentials: 'include'`, никогда не хранит токены, сопоставляет `fieldErrors` бэкенда с ошибками формы и выполняет единственное одновременное обновление токена при `401`.
 
 ---
@@ -170,7 +171,7 @@ Docker Compose читает корневой `.env` автоматически. 
 | `POSTGRES_USER` | нет (по умолчанию `postgres`) | postgres, все сервисы с данными | Суперпользователь PostgreSQL, используемый init-скриптом и сервисами |
 | `POSTGRES_PASSWORD` | **да** | postgres, все сервисы с данными | Пароль для `POSTGRES_USER`. Compose отказывается запускаться без него |
 | `JWT_SECRET` | **да** | identity, reference, function-catalog | Общий ключ HMAC-SHA256. Должен быть не короче 32 байт (256 бит). Сгенерируйте с помощью `openssl rand -base64 48` |
-| `MFA_ENABLED` | нет (по умолчанию `false`) | identity-service | Второй фактор (TOTP) для `SUPER_ADMIN` и `ORG_ADMIN`. **В этом окружении отключён конфигурацией**: при `false` код не запрашивается, ключ не нужен, таблицы и данные enrollment сохраняются. `true` включает MFA снова; см. раздел 12 и [docs/mfa-sessions-and-assignments.md](docs/mfa-sessions-and-assignments.md) |
+| `MFA_ENABLED` | нет (по умолчанию `false`) | identity-service | Второй фактор (TOTP) для `SUPER_ADMIN` и `ORG_ADMIN`. **В этом окружении отключён конфигурацией**: при `false` код не запрашивается, ключ не нужен, таблицы и данные enrollment сохраняются. `true` включает MFA снова вместе с **тем же** `MFA_ENCRYPTION_KEY`, которым зашифрованы существующие enrollment; см. [docs/mfa-sessions-and-assignments.md](docs/mfa-sessions-and-assignments.md) |
 | `MFA_ENCRYPTION_KEY` | только при `MFA_ENABLED=true` | identity-service | Base64-ключ в 32 байта (`openssl rand -base64 32`) для шифрования секретов TOTP; без него включённый MFA не даёт identity-service стартовать. При повторном включении нужен **тот же** ключ, которым зашифрованы существующие enrollment. Не используйте `JWT_SECRET` повторно |
 | `MFA_ENROLLMENT_DEADLINE` | нет | identity-service | Срок в ISO-8601, до которого существующие администраторы могут входить без второго фактора (только при включённом MFA) |
 | `APP_COOKIE_SECURE` | **да** | identity-service | `false` для локального HTTP-стека за same-origin прокси Nginx, `true` для любого HTTPS-развёртывания |
@@ -185,9 +186,11 @@ Docker Compose читает корневой `.env` автоматически. 
 | `HELP_MAIL_FROM` | нет | function-catalog-service | Адрес отправителя уведомлений поддержки |
 | `APP_COOKIE_SECURE` (для каталога) | **да** (в Compose) | function-catalog-service | Флаг `Secure` cookie гостя поддержки `reestr_support`; локально по HTTP — `false`, при HTTPS — `true` |
 | `PASSWORD_RESET_TOKEN_TTL` | нет | identity-service | Срок действия одноразовой ссылки сброса, ISO-8601 (по умолчанию `PT60M`) |
-| `AZURE_TRANSLATOR_ENDPOINT` | нет | function-catalog-service | Endpoint Azure Translator (например `https://api.cognitive.microsofttranslator.com`). Пока любое из трёх значений пусто, автоматический перевод не выполняется: содержимое сохраняется и ждёт в очереди, редактор видит «Автоматический перевод недоступен» |
-| `AZURE_TRANSLATOR_KEY` | нет | function-catalog-service | Ключ ресурса Azure Translator. Читается только из окружения/`.env`, никогда не логируется и не попадает в ответы API |
-| `AZURE_TRANSLATOR_REGION` | нет | function-catalog-service | Регион ресурса Azure Translator |
+| `AZURE_TRANSLATOR_ENDPOINT` | нет | function-catalog-service, reference-service | Endpoint Azure Translator (например `https://api.cognitive.microsofttranslator.com`). Пока любое из трёх значений пусто, автоматический перевод не выполняется: содержимое сохраняется и ждёт в очереди, интерфейс показывает недостающие тексты на английском, редактор видит «Автоматический перевод недоступен» |
+| `AZURE_TRANSLATOR_KEY` | нет | function-catalog-service, reference-service | Ключ ресурса Azure Translator. Читается только из окружения/`.env`, передаётся только в заголовке запроса к Azure, никогда не логируется, не сохраняется в базе и не попадает в ответы API |
+| `AZURE_TRANSLATOR_REGION` | нет | function-catalog-service, reference-service | Регион ресурса Azure Translator |
+| `INTERFACE_TRANSLATION_ENABLED` | нет (по умолчанию `true`) | reference-service | `false` приостанавливает фоновое заполнение словарей интерфейса; проверенный каталог применяется при старте в любом случае |
+| `SPRING_JPA_SHOW_SQL` | нет (по умолчанию `false`) | reference-service | Логирование SQL для отладки |
 | `GATEWAY_TRUSTED_PROXIES` | нет (по умолчанию `172.28.0.10/32`, статический адрес nginx в Compose) | api-gateway | IP или CIDR обратных прокси, которым разрешено передавать `X-Real-IP`/`X-Forwarded-For`. Остальным вызывающим шлюз подставляет их реальный адрес, поэтому лимиты на клиента нельзя обойти подменой заголовка |
 | `CATALOG_TRANSLATION_ENABLED` | нет (по умолчанию `true`) | function-catalog-service | `false` приостанавливает фоновый воркер перевода; задачи копятся в `translation_jobs` и выполняются после включения (см. [docs/machine-translation.md](docs/machine-translation.md)) |
 | `IDENTITY_DB_PASSWORD` | нет | identity-service вне Compose | Переопределяет `POSTGRES_PASSWORD` для базы identity |
@@ -237,6 +240,7 @@ AZURE_TRANSLATOR_ENDPOINT=
 AZURE_TRANSLATOR_KEY=
 AZURE_TRANSLATOR_REGION=
 CATALOG_TRANSLATION_ENABLED=true
+INTERFACE_TRANSLATION_ENABLED=true
 ```
 
 ---
@@ -349,7 +353,8 @@ Vite проксирует `/api` на шлюз, поэтому cookie являю
 
 ```shell
 npm run typecheck    # tsc for the app and for the Playwright tests
-npm run lint         # ESLint, zero warnings expected
+npm run lint         # ESLint (zero warnings) + the static localization check
+npm run i18n:check   # only the localization check: catalog completeness, keys, hard-coded text
 npm run build        # production bundle into dist/
 npm run preview      # serve dist/ locally
 ```
@@ -365,7 +370,7 @@ npm run preview      # serve dist/ locally
 - **Защита входа от перебора.** `POST /api/auth/login` ограничен на клиента (20 попыток за 15 минут по `X-Real-IP`) и на учётную запись (10 неверных паролей за 15 минут по введённому e-mail, независимо от того, существует ли аккаунт, чтобы ответ не раскрывал его наличие); превышение даёт 429 с общим сообщением, успешный вход сбрасывает счётчик. Настройки: `app.login.*` в `application.yaml`.
 - **Администратор не может обойти собственную защиту.** `POST /api/user/{id}/mfa/reset` и `POST /api/user/{id}/password-reset` отвергают собственный id вызывающего: свой второй фактор отключается только с паролем и кодом, свой пароль меняется только через текущий пароль, поэтому перехваченная сессия `SUPER_ADMIN` не даёт постоянного захвата аккаунта.
 - **Адрес клиента нельзя подменить.** Шлюз (`ClientAddressFilter`) оставляет `X-Real-IP`/`X-Forwarded-For` только от доверенных прокси (`GATEWAY_TRUSTED_PROXIES`, в Compose — статический адрес nginx) и для всех остальных подставляет реальный адрес соединения; сервисы и Eureka не публикуются на хосте, поэтому лимиты на клиента (вход, сброс пароля, MFA, сообщения, отзывы) нельзя обойти прямым обращением.
-- **Второй фактор и сессии.** Второй фактор отключён конфигурацией (`MFA_ENABLED=false` по умолчанию в `application.yaml`, `docker-compose.yml` и `.env.example`); код, миграция `V5` и таблицы сохранены, включение описано в разделе 12. При `MFA_ENABLED=true` `SUPER_ADMIN` и `ORG_ADMIN` после пароля подтверждают вход TOTP-кодом (или кодом восстановления); до этого браузер держит только одноразовый challenge-cookie с путём `/api/auth/mfa`, а access/refresh не выдаются. Секреты шифруются `MFA_ENCRYPTION_KEY`, коды восстановления хранятся как хэши. Пользователь видит и завершает свои сессии (`/api/auth/sessions`), `SUPER_ADMIN` — сессии любого пользователя с аудитом; access-токен несёт `sid` и отклоняется identity-service сразу после отзыва (см. [docs/mfa-sessions-and-assignments.md](docs/mfa-sessions-and-assignments.md)).
+- **Второй фактор и сессии.** Второй фактор отключён конфигурацией (`MFA_ENABLED=false` по умолчанию в `application.yaml`, `docker-compose.yml` и `.env.example`); код, миграция `V5` и таблицы сохранены, включение описано в [docs/mfa-sessions-and-assignments.md](docs/mfa-sessions-and-assignments.md). При `MFA_ENABLED=true` `SUPER_ADMIN` и `ORG_ADMIN` после пароля подтверждают вход TOTP-кодом (или кодом восстановления); до этого браузер держит только одноразовый challenge-cookie с путём `/api/auth/mfa`, а access/refresh не выдаются. Секреты шифруются `MFA_ENCRYPTION_KEY`, коды восстановления хранятся как хэши. Пользователь видит и завершает свои сессии (`/api/auth/sessions`), `SUPER_ADMIN` — сессии любого пользователя с аудитом; access-токен несёт `sid` и отклоняется identity-service сразу после отзыва (см. [docs/mfa-sessions-and-assignments.md](docs/mfa-sessions-and-assignments.md)).
 - **Сброс пароля без раскрытия паролей.** Пароли хранятся только как BCrypt-хэши; ни один endpoint не показывает, не генерирует и не логирует пароль. `SUPER_ADMIN` вызывает `POST /api/user/{id}/password-reset` и получает одноразовую ссылку ровно один раз (в базе остаётся только SHA-256 хэш токена, инициатор, цель и время); пользователь задаёт новый пароль через `/reset-password?token=…`. Токен случайный (256 бит), одноразовый, живёт `PASSWORD_RESET_TOKEN_TTL`, новый сброс аннулирует предыдущие. Успешный сброс (и обычная смена пароля) записывает `credentials_updated_at`: refresh-токены отзываются, а access-токены, выпущенные раньше, отклоняются. «Забыли пароль?» появляется только при настроенной SMTP-доставке (`PASSWORD_RESET_MAIL_ENABLED`), ответ не раскрывает существование учётной записи; запросы и попытки ввода токена ограничены по частоте (на клиента по `X-Real-IP` и глобально).
 - **RBAC.** Роли владеют правами; редакционные endpoints используют `@PreAuthorize("hasAuthority(...)")`, например `FUNCTIONS_REVIEW`, `FUNCTIONS_PUBLISH`, `FUNCTIONS_REACTIVATE`, `FUNCTION_CATEGORIES_MANAGE` и `AUDIT_VIEW`. Администраторы организаций ограничены своими организациями. Сообщения посетителей читаются с `REPORTS_VIEW` или `ORG_REPORTS_MANAGE`, а их статус меняется с `ORG_REPORTS_MANAGE` или `REPORTS_VIEW` + `REPORTS_MANAGE`. Панель организации, очередь качества, напоминания и выгрузки (CSV, Excel, PDF) требуют `ORG_ANALYTICS_VIEW`; выгрузки повторяют фильтры и ограничение по организации экрана и не содержат контактов посетителей, текстов сообщений и данных сотрудников. Входящие поддержки читаются с `VISITOR_QUESTIONS_VIEW` (только переписка своих организаций; центральная — только глобальные сотрудники), ответ, назначение и смена статуса требуют ещё `VISITOR_QUESTIONS_REPLY`; контакт посетителя виден только сотрудникам с правом ответа. Все проверки и ограничение по организации выполняются на бэкенде (см. [docs/organization-analytics.md](docs/organization-analytics.md)). Проверку карточки услуги отмечает `FUNCTIONS_REVIEW`, проверку организации — `ORGANIZATIONS_EDIT` или `ORGANIZATIONS_EDIT_OWN` для своей организации; отметка означает внутреннюю проверку организацией (с указанием сотрудника и даты), а не официальное подтверждение, и не требует внешней ссылки. Опубликованная карточка редактируется только через черновую редакцию (`POST /api/functions/{id}/revisions`, `FUNCTIONS_EDIT` в пределах своей организации; `SUPER_ADMIN` и `FUNCTIONS_MANAGE_ANY_ORGANIZATION` — для любой), публичная версия меняется только при публикации редакции рецензентом (см. [docs/function-editorial-workflow.md](docs/function-editorial-workflow.md)).
 - **Публичные endpoints.** Анонимный доступ ограничен `GET /api/public/**`, `GET /api/languages`, `GET /api/languages/catalog`, `GET /api/regions/**`, `GET /api/interface-translations/{language}`, публичными чтениями `GET /api/functions/**` (варианты admin, pending-review и audit исключены), анонимной отправкой `POST /api/reports`, `POST /api/analytics/events` и `POST /api/feedback`, PDF-памяткой `GET /api/functions/{id}/guide.pdf`, перепиской поддержки посетителя (`/api/help/options`, `/api/help/support/**` — доступ только к собственной переписке по HttpOnly SameSite=Strict cookie гостя или по учётной записи; номер переписки доступа не даёт; запросы с чужим Origin отклоняются), точками входа аутентификации и Swagger. Всё остальное требует аутентификации. Отправка сообщений ограничена по частоте в function-catalog-service (на клиента по заголовку `X-Real-IP`, глобально и на один объект в сутки) и защищена скрытым полем-ловушкой; события активности ограничены на клиента и глобально и хранятся только как дневные счётчики; IP-адреса не сохраняются. Порт шлюза публикуется только на `127.0.0.1`, и даже прямой вызов не может подменить `X-Real-IP`: шлюз перезаписывает его для всех, кроме доверенных прокси.
@@ -387,7 +392,7 @@ git ls-files | grep -E '(^|/)\.env($|\.)|\.(pem|key|p12|pfx|jks)$'
 | Модуль | Что запускается | Инфраструктура |
 | --- | --- | --- |
 | identity-service | Модульные и `@SpringBootTest` наборы с профилем `test` (`application-test.yaml`): H2 в памяти в режиме PostgreSQL, Flyway отключён, Eureka отключена; `LoginProtectionTest`/`LoginAttemptGuardTest` проверяют защиту входа | нет |
-| reference-service | Модульные тесты и тесты веб-слоя | нет |
+| reference-service | Модульные тесты и тесты веб-слоя (сопоставление BCP 47 → Azure, защита плейсхолдеров, клиент Azure, безопасность endpoints) и `InterfaceTranslationPostgresTest` (Testcontainers PostgreSQL 16: миграции, синхронизация каталога, сохранение ручных правок, полнота, очередь машинного перевода, повторы, неподдерживаемые языки, ETag) | Docker daemon |
 | function-catalog-service | Модульные тесты, `CatalogPostgresTest`, `CatalogEnhancementsPostgresTest`, `ReportWorkflowPostgresTest`, `OrganizationInsightsPostgresTest`, `OrganizationDashboardPostgresTest`, `FunctionRevisionPostgresTest`, `PublicHistoryAssignmentFeedbackPostgresTest`, `MachineTranslationPostgresTest`, `OrganizationReportExportPostgresTest`, `HelpConversationPostgresTest`, `ServiceGuidePostgresTest` (Testcontainers PostgreSQL 16) и `AdminFunctionsBrowserIT` (браузерный сценарий Playwright против реального Spring-контекста) | Docker daemon |
 | api-gateway | `ClientAddressFilterTest` (доверенные прокси, перезапись `X-Real-IP`, разбор CIDR) | нет |
 | eureka-server | Тестов нет; `mvn test` только компилирует модуль | нет |
@@ -395,12 +400,13 @@ git ls-files | grep -E '(^|/)\.env($|\.)|\.(pem|key|p12|pfx|jks)$'
 ```shell
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 (cd identity-service && mvn -q test)
-(cd reference-service && mvn -q test)
+(cd reference-service && mvn -q test)                                                   # needs Docker
+(cd reference-service && mvn -q test -Dtest='!*PostgresTest')                           # without Docker
 (cd function-catalog-service && mvn -q test)                                           # needs Docker
 (cd function-catalog-service && mvn -q test -Dtest='!*PostgresTest,!AdminFunctionsBrowserIT')   # without Docker
 ```
 
-`function-catalog-service/src/test/resources/docker-java.properties` фиксирует версию Docker API 1.44 для клиента Testcontainers, поскольку Docker Engine 29 требует её.
+`src/test/resources/docker-java.properties` в function-catalog-service и reference-service фиксирует версию Docker API 1.44 для клиента Testcontainers, поскольку Docker Engine 29 требует её.
 
 ### Фронтенд
 
@@ -411,13 +417,15 @@ npm run test                      # UI suite against route mocks (all specs list
 npm run test:backend              # real-backend suite, driven by AdminFunctionsBrowserIT
 ```
 
-UI-набор запускает Vite на порту 5183 внутри процесса (`tests/start-vite.mjs`) и мокирует каждый вызов `/api/**` в `tests/fixtures.ts`, загружая словарь UI из миграций reference-service, чтобы подписи совпадали с production. Набор с реальным бэкендом требует `CATALOG_TEST_URL` и `CATALOG_TEST_JWT`, которые предоставляет Java-интеграционный тест.
+UI-набор запускает Vite на порту 5183 внутри процесса (`tests/start-vite.mjs`) и мокирует каждый вызов `/api/**` в `tests/fixtures.ts`, отдавая словари из каталога reference-service (`src/main/resources/i18n/interface`), как это делает сервер. `tests/localization.spec.ts` переключает главную страницу и панель администратора между английским и французским, обходит 23 публичные и административные страницы на `fr`, `ru` и `uz` и падает, если на экране остался английский текст каталога; там же проверяются варианты языка, RTL, гонка медленного словаря, ошибка загрузки, сохранение выбора, формы множественного числа и сама статическая проверка. Набор с реальным бэкендом требует `CATALOG_TEST_URL` и `CATALOG_TEST_JWT`, которые предоставляет Java-интеграционный тест.
 
 ### Критерии готовности
 
 ```shell
 cd front && npm run typecheck && npm run lint && npm run build && npm run test
 ```
+
+Известно на момент последней проверки: 7 сценариев в `checklist.spec.ts`, `feedback-history.spec.ts` и `public-catalog.spec.ts` падают и на исходном коммите `6d2b4a5` (неоднозначные локаторы: печатный лист подготовки дублирует текст страницы); к локализации они не относятся. Сценарий `support.spec.ts:22` нестабилен и на исходном коммите (2 падения из 5 повторов).
 
 вместе с зелёными прогонами Maven-тестов для изменённых сервисов.
 
@@ -464,6 +472,9 @@ docker compose up -d
 | Playwright не находит Chromium | Выполните `npx playwright install chromium` внутри `front/`. |
 | Flyway `Migration checksum mismatch` | Был отредактирован уже применённый файл миграции. Никогда не изменяйте применённые миграции; вместо этого добавьте новый `V<n>__*.sql` или восстановите локальную базу с помощью `docker compose down -v`. |
 | Кнопка автоматического перевода отсутствует в редакторе | `AZURE_TRANSLATOR_*` пусто. Endpoint возможностей сообщает `available: false`, и UI скрывает действие намеренно. |
+| Часть интерфейса осталась на английском | Ключ отсутствует в словаре языка. «Языки» в консоли показывает полноту и пример недостающих ключей; `GET /api/interface-translations/{lang}/missing` перечисляет их. Для языков каталога (en/ru/uz/fr) добавьте перевод в `reference-service/src/main/resources/i18n/interface/<lang>.json`; для остальных включите Azure или впишите перевод через `PUT /api/interface-translations/{lang}`. |
+| Язык помечен «Не поддерживается Azure Translator» | У Azure нет кода для этого тега (например `uz-Cyrl`, `az-Cyrl`). Это не ошибка: переводы этого языка вводятся вручную, остальные языки переводятся как обычно. |
+| `npm run lint` пишет `hard-coded text …` или `… is not in the interface catalog` | Новая строка выведена мимо `t()` или ключ не добавлен в каталог. Добавьте ключ во все четыре файла каталога (или пометьте технический литерал комментарием `i18n-exempt`). |
 
 ---
 
@@ -493,7 +504,7 @@ docker compose up -d
 - Компоненты — функциональные компоненты с явными интерфейсами props; общий UI живёт в `src/components/ui` и стилизуется дизайн-токенами Tailwind (`bg-surface`, `text-content-muted`, `border-line`, `rounded-control`) вместо сырых цветов палитры.
 - Интерактивные оверлеи (селекты, меню, тултипы) строятся на примитивах Radix для навигации с клавиатуры, управления фокусом и ARIA; нативный `<select>` не используется.
 - Серверное состояние проходит через TanStack Query с ключами, определёнными в `features/queryKeys.ts`; формы используют react-hook-form со схемами zod из `lib/validation.ts`; серверные ошибки полей применяются с помощью `lib/forms.ts`.
-- Каждая видимая пользователю строка разрешается через `t('key', 'English fallback')` и засевается в миграции reference-service для всех поддерживаемых языков.
+- Каждая видимая пользователю строка разрешается через `t('key')` (счётные тексты — `t('key', { count })`, подстановки — `{name}`); ключ и тексты на en/ru/uz/fr добавляются в `reference-service/src/main/resources/i18n/interface/*.json`, а не в миграции. Необязательный второй аргумент-фолбэк должен совпадать с английским текстом каталога — это проверяет `npm run lint`.
 - Доступность — часть критериев готовности: подписанные элементы управления, сводки `aria-live`, возврат фокуса после диалогов, поддержка reduced-motion.
 
 **Git**
@@ -511,7 +522,7 @@ ReestrGov/
 ├── api-gateway/                 Spring Cloud Gateway (routing, CORS)
 ├── eureka-server/               Netflix Eureka registry
 ├── identity-service/            Auth, users, roles, permissions, organizations, languages
-├── reference-service/           Regions, interface translations, translation keys
+├── reference-service/           Regions, interface dictionary (i18n/interface/*.json catalog), coverage, interface machine translation
 ├── function-catalog-service/    Service catalog, editorial workflow, categories, audit, translation
 ├── front/                       React 18 + Vite 8 SPA, Nginx image, Playwright tests
 ├── docs/                        Functional specifications (admin functions UI, editorial workflow, machine translation, MFA)
@@ -530,247 +541,105 @@ ReestrGov/
 - `docs/public-catalog-enhancements.md` описывает структурированные инструкции, контакты организаций, подбор услуг, сообщения об ошибках, проверку по официальному источнику, сохранение, печать и отправку ссылок.
 - `docs/public-search-and-visitor-tools.md` описывает многоязычный поиск (правила нормализации и транслитерации), чек-лист подготовки (сравнение услуг удалено 16.10.2026), публичную историю изменений и отзывы «Была ли информация полезной?».
 - `docs/mfa-sessions-and-assignments.md` описывает второй фактор, управление сессиями, ответственных сотрудников карточек и право `FUNCTIONS_ASSIGN`.
-- `docs/machine-translation.md` описывает фоновую очередь автоматического перевода (Azure Translator), правила замены переводов, повторы и backfill.
+- `docs/localization.md` описывает локализацию интерфейса: каталог, синхронизацию, полноту, машинный перевод словарей и сопоставление BCP 47 с кодами Azure.
+- `docs/machine-translation.md` описывает фоновую очередь автоматического перевода содержимого (Azure Translator), правила замены переводов, повторы и backfill, включая опубликованные карточки.
+- `docs/visitor-questions-guides-exports.md`, `docs/support-chat.md`, `docs/organization-analytics.md` описывают выгрузки Excel/PDF, памятку, страницу поддержки и панель организации.
 - `front/README.md` содержит заметки по развёртыванию, специфичные для фронтенда.
 
 ---
 
-## 12. Изменения от 15.10.2026: автоперевод, MFA, очистка
+## 12. Локализация и перевод
 
-### Что изменилось
+Подробное описание (форматы, правила приоритета, API, примеры) — в [docs/localization.md](docs/localization.md) и
+[docs/machine-translation.md](docs/machine-translation.md). Кратко:
 
-**Автоматический перевод (function-catalog-service, front).** Раньше Azure вызывался только по клику редактора или при
-переходе на страницу карточки сразу после создания; импорт, сиды и API оставляли карточки без переводов, а сиды
-обращались к Azure при каждом запуске для жёстко заданных `en`/`uz`. Теперь:
+### 12.1 Тексты интерфейса
 
-- создание и изменение карточки (`POST/PUT /api/functions`), CSV-импорт, редакционные сиды и категории ставят запись
-  в очередь `translation_jobs` (миграция `V9__translation_jobs.sql`, колонка `function_categories.source_language`);
-- фоновый воркер (`catalog.translation.*`: первый тик через 30 с, далее каждые 20 с, по 5 задач) переводит название,
-  описание, все поля инструкций и названия категорий **во все активные языки** из identity-service
-  (`GET /api/languages`), исключая исходный язык; жёстко заданного списка языков больше нет;
-- заполняются только отсутствующие переводы; ручные и уже существующие машинные переводы не заменяются. Машинный
-  перевод заменяется только когда редактор меняет исходный текст поля или нажимает «Перегенерировать»;
-- оригинал сохраняется всегда; при тайм-ауте, 429, 5xx или недоступности identity-service задача ждёт с отсрочкой
-  (1 мин → 5 мин → 15 мин → 1 ч → 6 ч), после 8 попыток — `FAILED` с кнопкой «Поставить в очередь снова»
-  (`POST /api/functions/{id}/translation-job`). Перезапуск сервиса не создаёт повторных вызовов провайдера;
-- `POST /api/functions/translations/backfill?organizationId=&limit=` — ограниченный, идемпотентный backfill только для
-  черновиков с недостающими языками; при старте массовых вызовов Azure нет;
-- редактор карточки показывает состояние задачи (в очереди / выполняется / завершена / не удалась / пропущена),
-  следующую попытку, число попыток и заметку, и опрашивает запись каждые 10 с, пока задача открыта;
-- один HTTP-запрос к Azure на набор недостающих языков (до 25 текстов), 429 отличается от прочих ошибок.
-  Подробности: [docs/machine-translation.md](docs/machine-translation.md).
-
-**MFA (identity-service).** Второй фактор отключён конфигурацией: `MFA_ENABLED` по умолчанию `false` в
-`MfaProperties`, `application.yaml`, `docker-compose.yml` и `.env.example`. При отключённом MFA ключ шифрования не
-требуется, сервис стартует без него, вход выдаёт полную сессию сразу после пароля, `GET /api/auth/mfa` отвечает
-`enabled=false`. Код MFA, миграция `V5__mfa_and_sessions.sql`, таблицы `user_mfa`, `mfa_recovery_codes`,
-`mfa_challenges`, `security_audit_events` и уже существующие enrollment не удалялись.
-
-**Очистка.** Удалены из репозитория `.section3-git/` (21 файл), `.section3-work/` (315 файлов), `.section3.index`,
-`section3.patch` и `.vscode/` (одна настройка Postman). Это архивный снимок более ранней, не применённой итерации
-безопасности (интроспекция токенов в шлюзе, CSRF-фильтры): ни один файл не участвовал в сборке, ссылок из кода нет,
-worktree или вложенных `.git` не было, патч не накладывается на текущий код. Уникальное содержимое остаётся в истории
-Git (коммиты `fb80438`, `e4435bf`): `git show fb80438:.section3-work/<путь>`. `frontend-pages-api.json` оставлен —
-на него ссылается `identity-service/API_USER_MIGRATION.md`. Оптимизация: `ActiveLanguageClient` больше не роняет
-административные ответы, когда identity-service не зарегистрирован в Eureka (использует кэш/пустой результат).
-
-### Как запустить
-
-1. `cp .env.example .env`, заполните `POSTGRES_PASSWORD`, `JWT_SECRET`, `BOOTSTRAP_SUPER_ADMIN_*`
-   (раздел 4). `MFA_ENABLED=false` уже стоит; ключ MFA не нужен.
-2. Для автоперевода впишите `AZURE_TRANSLATOR_ENDPOINT`, `AZURE_TRANSLATOR_KEY`, `AZURE_TRANSLATOR_REGION` из портала
-   Azure (ресурс Translator). `.env` игнорируется Git; значения не должны попадать в коммиты, логи и тикеты.
-3. `docker compose up --build -d` (раздел 5) или запуск из IDE (раздел 6). Существующие тома не трогаются: Flyway
-   применяет `V9` каталога и `V9` reference-service поверх текущих данных.
-4. После старта воркер начнёт переводить новые/изменённые карточки. Для старых черновиков без переводов выполните
-   один раз от имени `SUPER_ADMIN` (или редактора с `FUNCTIONS_EDIT` + `FUNCTIONS_TRANSLATIONS_EDIT`):
-   `POST /api/functions/translations/backfill?limit=50` — повторяйте, пока `queued` не станет 0.
-5. Чтобы включить MFA снова: `MFA_ENABLED=true` и `MFA_ENCRYPTION_KEY` = тот же ключ, которым были зашифрованы
-   существующие enrollment (иначе их нельзя расшифровать; сначала сбросьте их через `POST /api/user/{id}/mfa/reset`
-   или удалите строки `user_mfa`). Для новой установки: `openssl rand -base64 32`. При необходимости задайте
-   `MFA_ENROLLMENT_DEADLINE`; затем пересоздайте только identity-service: `docker compose up -d --build identity-service`.
-
-### Проверки, выполненные 15.10.2026
-
-| Проверка | До изменений | После изменений |
+| Часть | Где | Что делает |
 | --- | --- | --- |
-| `identity-service` `mvn test` | 156 тестов, 0 ошибок | 156 тестов, 0 ошибок |
-| `reference-service` `mvn test` | 24, 0 ошибок | 24, 0 ошибок |
-| `function-catalog-service` `mvn test` (Testcontainers PostgreSQL 16) | 206, 0 ошибок | 215, 0 ошибок (новые: `MachineTranslationPostgresTest` ×8, пакетный запрос и 429 в `AzureTranslationClientTest`) |
-| `api-gateway`, `eureka-server` `mvn test` | компиляция, тестов нет | компиляция, тестов нет |
-| `front`: `npm run typecheck`, `npm run lint` | без ошибок | без ошибок, 0 предупреждений |
-| `front`: `npm run build` | успешно | успешно |
-| `front`: `npm run test` (Playwright, Chromium) | 56 сценариев | 58 сценариев, 0 ошибок |
-| `docker compose config` | — | валиден (`MFA_ENABLED=false`, `CATALOG_TRANSLATION_ENABLED` передаётся в каталог) |
+| Каталог (единственный источник ключей) | `reference-service/src/main/resources/i18n/interface/{en,ru,uz,fr}.json` | Плоские объекты `ключ → текст`. `en.json` определяет набор ключей и английский исходный текст; остальные файлы — проверенные переводы. Счётные тексты — группы `ключ_one`/`ключ_other` (+ `_few`/`_many`, если язык их требует) |
+| Синхронизация | `InterfaceCatalogSynchronizer` (при старте reference-service, одна транзакция под advisory-lock PostgreSQL) | Добавляет новые ключи и тексты, обновляет тексты каталога, заменяет машинные переводы проверенными, выводит из оборота ключи, удалённые из каталога. **Ручные правки (`source=HUMAN`) не меняются никогда.** Строки, существовавшие до появления происхождения, становятся `SEED`, если совпадают с каталогом, иначе `HUMAN` |
+| Происхождение | колонки `translations.source` (`SEED`/`HUMAN`/`MACHINE`), `source_hash`, `updated_at` (миграция `V12`) | `source_hash` — SHA-256 английского текста, для которого написан перевод: при изменении английского машинный перевод считается устаревшим и переводится заново, а ручной помечается «требует проверки» |
+| Выдача | `GET /api/interface-translations/{lang}` | Английская основа + каждый уровень тега (`fr-FR` → `fr`, `fr-FR`). Кэш Caffeine, ETag/`Cache-Control: no-cache` (повторная загрузка — 304), gzip |
+| Фронтенд | `src/contexts/I18nContext.tsx`, `src/lib/i18n/*` | `t(key)`, `t(key, { count, name })`; язык, `lang`, `dir`, заголовок страницы, даты/числа (Intl) переключаются атомарно, когда словарь получен; медленный ответ не перекрывает более поздний выбор; при ошибке остаётся язык на экране; словарь кэшируется в памяти и `localStorage` |
+| Полнота | «Языки» в консоли, `GET /api/interface-translations/overview`, `/{lang}/coverage`, `/{lang}/missing` | Для каждого активного языка: сколько текстов переведено (с учётом родительского языка), кем (люди/каталог/машина), сколько ещё на английском, устаревших машинных и ручных на проверку, код Azure и состояние задачи |
+| Машинный перевод словарей | `InterfaceMachineTranslationService` + таблица `interface_translation_jobs` | Раз в 15 минут ставит в очередь активные языки с пробелами; воркер (каждые 2 минуты) переводит только недостающие/устаревшие машинные тексты пакетами до 100 текстов / 20 000 символов, сохраняет каждый пакет сразу (`source=MACHINE`), повторяет при сбое (1 → 5 → 15 → 60 мин → 6 ч, при 429 не меньше 5 мин), после `max-attempts` — `FAILED` до явного повтора кнопкой «Повторить» или `POST /api/interface-translations/{lang}/machine-translation`. Плейсхолдеры `{…}`, названия продукта, URL и e-mail защищены (`notranslate`); ответ с изменённым плейсхолдером отбрасывается. Никогда не вызывается при загрузке страницы |
 
-Живой запуск (jar-файлы eureka-server, identity-service и function-catalog-service против одноразового контейнера
-PostgreSQL 16 на порту 55432, без касания существующих томов; контейнер удалён после проверки):
+### 12.2 Содержимое из базы
 
-- identity-service стартовал **без `MFA_ENCRYPTION_KEY`**, Flyway дошёл до `V5`; вход `SUPER_ADMIN` вернул 200 и cookie
-  сессии (не 202 с challenge), `/api/auth/me` → `mfa.required=false`, `/api/auth/mfa` → `enabled=false`; смена
-  обязательного пароля прошла;
-- function-catalog-service применил `V9`, воркер поставил в очередь 8 редакционных черновиков и 7 категорий и перевёл
-  их в `en`/`uz` (активные языки identity-service: `en`, `ru`, `uz`; исходный `ru` исключён). Первая попытка не
-  удалась из-за ошибки самой заглушки (она не читала chunked-тело запроса), после чего воркер, как и задумано,
-  повторил задачи через 1 минуту и завершил их;
-- созданная через API карточка (`en`, с инструкциями): ручной перевод названия на `ru`, добавленный до тика воркера,
-  сохранён как `human`; `uz` и остальные поля заполнены как `machine` двумя запросами к провайдеру (1 и 4 текста);
-  запись аудита `system:machine-translation`; `machineTranslation.status=DONE` в административном ответе;
-- карточка, для которой провайдер отвечает 429: `status=PENDING`, `attempts=1`, следующая попытка через 5 минут,
-  `lastError` «rate limit»; `POST …/translation-job` → 202 и обнулённый счётчик; `GET /api/functions/{id}` черновика —
-  404, без полей перевода; ключ провайдера в логах не встречается.
+| Сущность / поле | Перевод | Как заполняется |
+| --- | --- | --- |
+| Услуга: название, описание, шесть полей инструкций | да (`*_translations`, `{код: {text, source}}`) | Ручной редактор или фоновый машинный перевод черновиков; опубликованная карточка — через черновую редакцию (`backfill?includePublished=true` создаёт её сам) |
+| Категория: название | да | Ручной ввод или фоновый машинный перевод |
+| Организация: официальное название, описание | да, **только вручную** (`PUT /api/organizations/{id}/translations`, «Переводы» в списке организаций) | Официальные названия не переводятся машиной |
+| Права и группы прав | ключи каталога `permission.<CODE>`, `permission.category.*` | Код права показывается как идентификатор |
+| Сообщения об ошибках сервисов | английский текст сервера показывается только в английском интерфейсе | Другие языки получают переведённое сообщение по коду ответа |
+| Не переводятся | старое поле `requirements`, детали документов (срок, примечания), ссылки, телефоны, адреса, имена людей, тексты посетителей и сотрудников в поддержке, коды и идентификаторы | — |
 
-**Ограничение.** Провайдером в живом запуске служила локальная заглушка протокола Azure Translator
-(`/translate?api-version=3.0`), потому что настоящих учётных данных в окружении и `.env` нет. Реальный вызов Azure не
-проверялся. Чтобы проверить его, задайте три переменные `AZURE_TRANSLATOR_*`, создайте один тестовый черновик и
-убедитесь через `GET /api/functions/{id}/admin`, что `machineTranslation.status=DONE`, а `missingLanguages` пуст; затем
-удалите черновик или оставьте его неопубликованным.
+Карточки, созданные до настройки Azure, уже стоят в очереди (`PENDING`) и переводятся после её настройки; остальное
+ставит в очередь backfill (раздел 13).
 
-### Оставшиеся ручные шаги
+### 12.3 BCP 47 и коды Azure Translator
 
-- Заполнить `AZURE_TRANSLATOR_ENDPOINT`, `AZURE_TRANSLATOR_KEY`, `AZURE_TRANSLATOR_REGION` в `.env` рабочего окружения
-  и пересоздать function-catalog-service (`docker compose up -d --build function-catalog-service`).
-- Запустить backfill для существующих черновиков (п. 4 выше).
-- Проверить, что в CI/на сервере после `git pull` выполняется `docker compose up --build`, чтобы применились новые
-  миграции и образы.
-- Решить, когда включать MFA в production, и сохранить ключ шифрования в менеджере секретов.
+Приложение хранит полный тег BCP 47 (identity-service — канонический регистр, `fr-FR`; переводы содержимого — в
+нижнем регистре, `fr-fr`, как и раньше). Только для запроса к Azure тег сопоставляется с кодом провайдера
+(`AzureLanguageCodes`, одинаковый класс в reference-service и function-catalog-service), и только если язык есть в
+актуальном списке Azure (`GET /languages?scope=translation`, без ключа, кэш 24 ч, при недоступности — встроенный
+список):
 
-### Продолжение от 15.10.2026: сборка, безопасность, миграции
-
-**Причина сбоя сборки.** Коммиты `fb61744`/`132cbd2` включили изменённые файлы (`OrgFunctionService`,
-`OrgFunctionController`, `FunctionAutoTranslationController` и др.), которые ссылаются на `TranslationTarget`,
-`MachineTranslationQueue`, `MachineTranslationSummary`, `TranslationBackfillResponse`, но 14 новых файлов очереди
-перевода (сущности, репозиторий, сервисы, миграции `V9`, тест, документ) остались неотслеживаемыми. Чистая сборка из
-Git не находила символы. Файлы добавлены в индекс (`git add`); их нужно закоммитить вместе с остальными изменениями.
-
-**Безопасность.**
-- Вход: лимит на клиента и на учётную запись (`app.login.*`, см. раздел 7), 429 с общим сообщением.
-- `POST /api/user/{id}/mfa/reset` и `POST /api/user/{id}/password-reset` больше не принимают собственный id.
-- Шлюз: `ClientAddressFilter` перезаписывает `X-Real-IP` для всех вызывающих, кроме `GATEWAY_TRUSTED_PROXIES`.
-- Compose: Eureka, identity, reference и каталог больше не публикуются на хосте; шлюз и PostgreSQL — только на
-  `127.0.0.1`; сеть `172.28.0.0/16` со статическим адресом nginx `172.28.0.10`.
-- `MFA_ENABLED=false` остаётся значением по умолчанию; код и миграция `V5` сохранены.
-
-**Миграции.**
-- identity-service `V6__baseline_schema_and_indexes.sql`: `V1`–`V5` были обёрнуты в `to_regclass()` и на пустой базе
-  ничего не делали, схему создавал Hibernate без индексов. `V6` создаёт все таблицы `IF NOT EXISTS` (с теми же
-  именами ограничений, что генерирует Hibernate) и безусловно создаёт индексы (`refresh_tokens_session_idx`,
-  `refresh_tokens_user_idx`, `security_audit_events_user_idx`, `password_reset_tokens_user_idx`, `mfa_*_user_idx`,
-  `users_role_idx`, `user_organizations_organization_idx`, индексы по `expires_at`). Проверено на одноразовых базах:
-  обновление базы, созданной старой версией (таблицы есть, индексов нет) добавило 11 индексов и сохранило данные;
-  пустая база получила таблицы и индексы без дублирующих ограничений.
-- function-catalog-service `V9__translation_jobs.sql` (очередь перевода, `function_categories.source_language`) и
-  `V10__list_indexes.sql` (`audit_logs(entity_type, entity_id, performed_at)`, `org_functions(organization_id)`,
-  `engagement_daily_counts(activity_date)`).
-
-**Производительность.** Списки пользователей identity-service загружают роль, права и организации одним запросом
-(`@EntityGraph`) вместо N+1; `GET /api/user` и `GET /api/functions/admin` принимают необязательные `page`/`size`
-(ответ — та же страница-массив плюс заголовок `X-Total-Count`); без параметров контракт не изменился.
-
-**Инициализация баз.** `init-multiple-dbs.sh` заменён на `init-multiple-dbs.sql`: на bind-mount с macOS образ
-PostgreSQL не мог выполнить скрипт (`bad interpreter: Permission denied`), и базы не создавались; SQL-файл не требует
-прав на выполнение. Для уже инициализированного тома без баз см. раздел 9.
-
-**Проверки, выполненные 15.10.2026 (после изменений).**
-
-| Проверка | Результат |
+| Тег приложения | Код Azure |
 | --- | --- |
-| `identity-service` `mvn test` | 161 тестов, 0 ошибок (новые: `LoginProtectionTest` ×3, `LoginAttemptGuardTest`, самозащита в `MfaServiceTest`/`PasswordResetServiceTest`) |
-| `function-catalog-service` `mvn test` (Testcontainers PostgreSQL 16) | 216 тестов, 0 ошибок (новый: постраничный список в `MachineTranslationPostgresTest`) |
-| `reference-service` `mvn test` | 24, 0 ошибок |
-| `api-gateway` `mvn test` | 3 (`ClientAddressFilterTest`), 0 ошибок |
-| `eureka-server` `mvn test` | компиляция, тестов нет |
-| `front`: typecheck, lint, build, Playwright | без ошибок, 58 сценариев |
-| Миграция identity `V6` | одноразовая база, созданная старой версией (таблицы без индексов): `V6` добавила 11 индексов, данные сохранены; пустая база: таблицы и индексы созданы, ограничения без дублей |
-| `docker compose config` | валиден |
-| `docker compose up --build -d` (одноразовые секреты через переменные окружения, не через `.env`) | 7 контейнеров запущены; `/healthz`, `/api/public/organizations`, `/api/functions`, вход `SUPER_ADMIN` через nginx — 200; identity `V1`–`V6`, каталог `V1`–`V10`, reference `V9` применены; индексы на месте; 15 задач перевода в `PENDING` (ключи Azure не заданы), содержимое сохранено |
-| Защита входа через nginx | 10 неверных паролей → `401`, 11-й → `429` |
-| Подмена `X-Real-IP` напрямую в шлюз (`127.0.0.1:8082`, 21 разный адрес и e-mail) | 20 × `401`, затем `429`: шлюз подставил реальный адрес, лимит на клиента сработал |
-| Опубликованные порты | только `3000`, `127.0.0.1:8082`, `127.0.0.1:5433`; Eureka и сервисы недоступны с хоста |
+| `fr`, `fr-FR`, `fr-BE` / `fr-CA` | `fr` / `fr-CA` |
+| `pt`, `pt-BR` / `pt-PT`, `pt-AO` | `pt` / `pt-PT` |
+| `zh`, `zh-CN`, `zh-Hans` / `zh-TW`, `zh-HK`, `zh-Hant` | `zh-Hans` / `zh-Hant` |
+| `sr`, `sr-Cyrl` / `sr-Latn` | `sr-Cyrl` / `sr-Latn` |
+| `mn` / `mn-Mong` | `mn-Cyrl` / `mn-Mong` |
+| `uz`, `uz-Latn`, `uz-UZ` | `uz` |
+| `uz-Cyrl`, `uz-Arab`, `az-Cyrl`, `pa-Arab`, `bs-Cyrl`, `nn` … | **не поддерживается** (Azure переводит на этот язык только в другой письменности) |
+| `tl`, `no`, `ckb`, `ku` | `fil`, `nb`, `ku` (центральный курдский), `kmr` (курманджи) |
 
-На этой машине порт `127.0.0.1:5433` был занят устаревшей привязкой Docker Desktop (ни один процесс и контейнер его
-не держал), поэтому для проверки PostgreSQL временно публиковался на `127.0.0.1:55436` через override-файл вне
-репозитория; `docker-compose.yml` не менялся. Том `reestrgov_pgdata` создан этой проверкой (ранее томов проекта на
-машине не было) и сохранён; контейнеры остановлены `docker compose down` без `-v`. Учётные данные Azure Translator в
-окружении по-прежнему отсутствуют: живой вызов Azure не выполнялся, очередь ждёт `AZURE_TRANSLATOR_ENDPOINT`,
-`AZURE_TRANSLATOR_KEY`, `AZURE_TRANSLATOR_REGION`.
+Неподдерживаемые языки показываются в консоли и в заметке задачи и никогда не мешают переводу на поддерживаемые: в
+одном запросе к Azure только поддерживаемые коды, одинаковые коды (`fr` и `fr-FR`) объединяются, а если Azure всё
+же отвечает 400 на запрос с несколькими языками, языки переводятся по одному и отказавший помечается
+неподдерживаемым.
+
+### 12.4 Как добавить или включить язык
+
+1. **Язык с проверенным переводом (как en/ru/uz/fr):** создайте `reference-service/src/main/resources/i18n/interface/<тег>.json`
+   со всеми ключами `en.json` (и формами множественного числа языка), выполните `cd front && npm run i18n:check`,
+   пересоберите reference-service и добавьте язык в консоли («Языки» → поиск → «Добавить»).
+2. **Любой другой язык:** добавьте его в консоли. Пока переводов нет, недостающие тексты показываются на английском;
+   при настроенном Azure они заполняются в фоне (в течение ~15 минут или сразу кнопкой «Перевести недостающие
+   тексты»), затем их можно исправить через `PUT /api/interface-translations/{тег}` — правка становится `HUMAN` и
+   больше не заменяется. Если язык не поддерживается Azure, консоль сообщает об этом.
+3. **Региональный вариант** (`fr-CA`, `pt-BR`) наследует родительский язык: переводить нужно только отличия.
+4. **Новый ключ в коде:** используйте `t('новый.ключ')`, добавьте ключ во все четыре файла каталога, запустите
+   `npm run lint`. После развёртывания синхронизатор добавит его, а машинный перевод дозаполнит остальные активные
+   языки.
 
 ---
 
-## 13. Изменения от 16.10.2026: отчёты Excel/PDF, вопросы посетителей, памятка, удаление сравнения
+## 13. Развёртывание изменений локализации и backfill
 
-Подробности, права, конфигурация и сценарий ручной проверки: [docs/visitor-questions-guides-exports.md](docs/visitor-questions-guides-exports.md).
+Изменения только добавляют: миграция reference-service `V12` (колонки происхождения, таблица задач, деактивация
+устаревших ключей) и никаких изменений схемы в других сервисах. Данные не удаляются.
 
-**Что добавлено.**
+1. `.env` (не коммитится): при желании заполните `AZURE_TRANSLATOR_ENDPOINT`, `AZURE_TRANSLATOR_KEY`,
+   `AZURE_TRANSLATOR_REGION` — теперь их читают и function-catalog-service, и reference-service (`docker-compose.yml`
+   передаёт их обоим). `INTERFACE_TRANSLATION_ENABLED=true` по умолчанию.
+2. Пересоберите и перезапустите: `docker compose up -d --build reference-service function-catalog-service identity-service front`.
+   При старте reference-service применит `V12` и синхронизирует каталог; в логе появится строка
+   `Interface catalog synchronized: …` (сколько добавлено, обновлено и сколько прежних значений сохранено как ручные).
+3. Откройте «Языки» в консоли: каждый активный язык должен показывать полноту; en/ru/uz/fr — 100 %.
+4. Содержимое: от имени `SUPER_ADMIN` (или с `FUNCTIONS_EDIT` + `FUNCTIONS_TRANSLATIONS_EDIT`) нажмите «Поставить
+   недостающие переводы в очередь» на странице услуг (или `POST /api/functions/translations/backfill?limit=50`;
+   с `includePublished=true` для опубликованных карточек создаются черновые редакции). Повторяйте, пока ответ не
+   перестанет сообщать о новых записях. Вызов идемпотентен и сам Azure не вызывает.
+5. Переведённые черновые редакции опубликованных карточек проходят обычную проверку и публикацию; опубликованный
+   текст до этого не меняется.
+6. Фронтенд на Netlify: `npm run build` в `front/` как раньше; дополнительных переменных не требуется.
 
-- **Отчёты в Excel и PDF.** Панель организации выгружает книгу `.xlsx` (листы «Сводка», «Активность по услугам»,
-  «Активность по времени», «Проблемы качества», «Сообщения посетителей») и печатный PDF с теми же фильтрами (период,
-  организация, категория); экран сообщений посетителей — Excel/PDF рядом с прежним CSV. Только реально собираемые
-  данные; права и ограничение по организации проверяются на бэкенде; контакты посетителей, тексты сообщений и данные
-  сотрудников не выгружаются. Новые зависимости function-catalog-service: Apache POI 5.4.1, OpenPDF 2.0.5
-  (+ `openpdf-fonts-extra` для кириллицы), `spring-boot-starter-mail`.
-- **Вопросы посетителей без учётной записи.** `/help` и кнопка «Задать вопрос» на странице услуги; вопрос об услуге
-  попадает в очередь её организации, общий — к `SUPER_ADMIN`. Посетитель читает ответ по личной ссылке
-  `/help/conversation#<токен>` (256 бит, в базе только хэш, не по id). Входящие для сотрудников — `/admin/questions`
-  со статусами «Новый», «В работе», «Отвечен», «Закрыт» и назначением ответственного. Это не онлайн-чат; срок ответа не
-  обещается. E-mail необязателен и используется, только если настроена доставка.
-- **PDF-памятка по услуге** на языке интерфейса (`GET /api/functions/{id}/guide.pdf?lang=…`, без входа) с чек-листом
-  подготовки; пустые разделы опускаются, внешняя ссылка не требуется. Печать страницы сохранена.
-- **Сравнение услуг удалено**: кнопки, страница и маршрут `/compare`, хранилище, ссылки, подписи и тесты. Сохранённые
-  услуги, чек-лист, печать, публичный каталог и аналитика не затронуты.
-
-**Миграции (аддитивные).** function-catalog `V11` (таблицы `help_conversations`, `help_messages`), identity `V7`
-(права `VISITOR_QUESTIONS_VIEW`/`VISITOR_QUESTIONS_REPLY` для существующих ролей), reference `V10` (подписи en/ru/uz/fr и
-удаление строк `compare.*`/`nav.compare`). Таблицы и тома не удаляются.
-
-**Новая конфигурация (необязательная).** `HELP_MAIL_ENABLED`, `HELP_MAIL_FROM` плюс уже существующие `PUBLIC_BASE_URL`
-и `SPRING_MAIL_*` (теперь передаются и в function-catalog-service, см. `docker-compose.yml` и `.env.example`).
-Маршрут шлюза `function-catalog-service` дополнен `/api/help/**`.
-
-**Как запустить и проверить.** Как обычно (раздел 5): `docker compose up --build -d`; миграции применяются при старте.
-Тесты: `(cd function-catalog-service && mvn test)` (нужен Docker), `(cd identity-service && mvn test)`,
-`(cd reference-service && mvn test)`, `(cd api-gateway && mvn test)`, `cd front && npm run typecheck && npm run lint &&
-npm run build && npm run test`.
-
-**Проверки, выполненные 16.10.2026.**
-
-| Проверка | Результат |
-| --- | --- |
-| `function-catalog-service` `mvn test` (Testcontainers PostgreSQL 16) | 237 тестов, 0 ошибок (новые: `OrganizationReportExportPostgresTest` ×7, `HelpConversationPostgresTest` ×7, `ServiceGuidePostgresTest` ×5, `HelpAccessTokensTest` ×3) |
-| `identity-service` `mvn test` | 161, 0 ошибок (`DataInitializerTest` обновлён под новые права) |
-| `reference-service` / `api-gateway` `mvn test` | 24 / 3, 0 ошибок |
-| `front`: typecheck, lint, build, Playwright UI | без ошибок, 66 сценариев (новые `checklist.spec.ts` с проверкой удаления сравнения, `visitor-help.spec.ts`, `exports.spec.ts`) |
-| Миграции на одноразовой PostgreSQL 16 | reference `V1`–`V10` применены, строк `compare.*` не осталось; identity `V7` идемпотентна и выдаёт права существующим ролям |
-| Стек `docker compose` (отдельный проект `reestrgov-verify`, одноразовые секреты в окружении, порт PostgreSQL переопределён файлом вне репозитория из-за занятого `127.0.0.1:5433`) | миграции каталога `V11`, identity `V7`, reference `V10` применены; через nginx: публичная карточка и PDF-памятка на русском без входа, вопрос посетителя → ответ `SUPER_ADMIN` виден по токену, сотрудник другой организации получает `403`, Excel (русские листы) и PDF выгружаются, чужая организация → `403`, аноним → `403`, `/compare` → 404. Остановлен `docker compose down` без `-v` |
-
-Ограничения: e-mail-уведомления проверены только тестами с подменой отправителя — реальный SMTP в окружении не
-настроен; SMS-канала в проекте нет. Срок ответа на вопросы не настраивается и посетителям не обещается.
-
----
-
-## 14. Изменения от 16.10.2026 (2): страница поддержки с постоянной перепиской
-
-Форма разового вопроса с личной ссылкой (раздел 13) заменена страницей **«Поддержка»** (`/support`, пункт меню с
-счётчиком непрочитанных ответов): у каждого посетителя одна личная переписка, в которой он пишет со временем, видит
-ответы и время сообщений. Подробности: [docs/support-chat.md](docs/support-chat.md).
-
-- **Без учётной записи.** Анонимный посетитель получает при первом сообщении непрозрачный случайный секрет в cookie
-  `reestr_support` (HttpOnly, SameSite=Strict, путь `/api/help`, `Secure` при `APP_COOKIE_SECURE=true`); в базе
-  только SHA-256. IP-адрес и «отпечаток» браузера идентичностью не служат. Вошедший пользователь ведёт переписку от
-  своей учётной записи. Необязательный код восстановления (хранится хэш) открывает переписку в другом браузере.
-- **Маршрутизация.** «Спросить об этой услуге» открывает ту же переписку с услугой в качестве темы; сообщение уходит
-  организации, отвечающей за услугу, общие сообщения — в центральную поддержку (`SUPER_ADMIN`). «Сообщить о проблеме»
-  пишет в ту же переписку категоризированное сообщение и одновременно создаёт запись в «Сообщениях посетителей» для
-  редакционной проверки; отдельного канала нет.
-- **Сотрудники.** «Входящие поддержки» (`/admin/questions`): фильтры по статусу, непрочитанному, организации,
-  ответственному, сортировка по последнему сообщению или непрочитанному; статусы «Открыт», «В работе», «Отвечен»,
-  «Закрыт», повторное открытие; назначение ответственного; контакт посетителя; счётчик в меню.
-- **Уведомления.** Состояние «прочитано» хранится на сервере. Механизма push в проекте нет, поэтому клиенты опрашивают
-  сервер: страница поддержки и открытая переписка у сотрудника — каждые 10 с, счётчики — каждые 45 с, список входящих —
-  20 с, и только пока вкладка видима. E-mail — только по согласию посетителя и при настроенном SMTP.
-- **Миграции.** function-catalog `V12` (таблицы `help_guests`, `help_guest_sessions`; новые столбцы в
-  `help_conversations` и `help_messages`; `access_token_hash` стал необязательным), reference `V11` (подписи en/ru/uz/fr,
-  удаление неиспользуемых `help.*`/`nav.help`). Ничего не удаляется из данных переписки.
-- **Совместимость.** `POST /api/reports` оставлен для API-клиентов, но интерфейс им больше не пользуется. Переписки,
-  созданные прежней формой (по токену), остаются у сотрудников; посетитель открыть их больше не может.
+Пауза: `INTERFACE_TRANSLATION_ENABLED=false` и `CATALOG_TRANSLATION_ENABLED=false` приостанавливают фоновый перевод
+без потери очереди. Откат: Прежняя версия reference-service продолжит работать с новыми колонками (они допускают
+`NULL`), а машинные переводы останутся обычными строками словаря.
 

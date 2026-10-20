@@ -233,7 +233,7 @@ export function Reports() {
             {(control) => <Input {...control} type="date" className="min-h-10 py-2 text-sm" value={query.to ?? ''} onChange={(event) => setParam('to', event.target.value)} />}
           </Field>
         </div>
-        <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`}>
+        <Toolbar summary={t('home.resultsCount', { count: rows.length })}>
           {filtered && (
             <Link to="/admin/reports" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
               {t('action.reset', 'Reset')}

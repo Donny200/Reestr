@@ -9,7 +9,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Support chat: abuse limits, the anonymous guest session cookie, recovery codes and optional e-mail notices. */
 @Component
 @ConfigurationProperties(prefix = "catalog.help")
 @Getter

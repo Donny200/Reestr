@@ -12,7 +12,7 @@ import { useI18n } from '../../contexts/i18n';
 import { applyServerErrors } from '../../lib/forms';
 import { requiredString } from '../../lib/validation';
 import type { Permission, RoleEntity } from '../../types/api';
-import type { PermissionGroup } from './permissions';
+import { permissionLabel, type PermissionGroup } from './permissions';
 import { errorMessage, type Translate } from '../../utils/errors';
 import { useCreateRole, useUpdateRolePermissions } from './queries';
 
@@ -156,7 +156,7 @@ export function RolePermissionsDialog({ role, groups, onClose }: RolePermissions
                   >
                     <Checkbox className="mt-0.5" checked={selected.includes(permission.id)} onChange={() => toggle(permission.id)} />
                     <span className="min-w-0">
-                      <span className="block leading-tight text-foreground">{permission.name}</span>
+                      <span className="block leading-tight text-foreground">{permissionLabel(permission, t)}</span>
                       <span className="block truncate text-xs text-secondary">{permission.code}</span>
                     </span>
                   </label>

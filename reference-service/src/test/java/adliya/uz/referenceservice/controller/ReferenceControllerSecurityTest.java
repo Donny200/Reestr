@@ -3,8 +3,10 @@ package adliya.uz.referenceservice.controller;
 import adliya.uz.referenceservice.security.JwtAuthenticationFilter;
 import adliya.uz.referenceservice.security.SecurityConfig;
 import adliya.uz.referenceservice.security.SimpleJwtService;
+import adliya.uz.referenceservice.service.InterfaceTranslationOverviewService;
 import adliya.uz.referenceservice.service.InterfaceTranslationService;
 import adliya.uz.referenceservice.service.TranslationKeyService;
+import adliya.uz.referenceservice.translation.InterfaceMachineTranslationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -48,6 +50,31 @@ class ReferenceControllerSecurityTest {
 
     @MockitoBean
     private SimpleJwtService simpleJwtService;
+
+    @MockitoBean
+    private InterfaceTranslationOverviewService overviewService;
+
+    @MockitoBean
+    private InterfaceMachineTranslationService machineTranslationService;
+
+    @Test
+    void translationOverviewIsNotPublic() throws Exception {
+        mockMvc.perform(get("/api/interface-translations/overview"))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(post("/api/interface-translations/fr/machine-translation"))
+                .andExpect(status().is4xxClientError());
+        verifyNoInteractions(overviewService, machineTranslationService);
+    }
+
+    @Test
+    @WithMockUser(authorities = "TRANSLATIONS_VIEW_COVERAGE")
+    void coverageViewersCanReadTheOverviewButNotQueueMachineTranslation() throws Exception {
+        mockMvc.perform(get("/api/interface-translations/overview"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/interface-translations/fr/machine-translation"))
+                .andExpect(status().isForbidden());
+        verifyNoInteractions(machineTranslationService);
+    }
 
     @Test
     void baseTranslationDictionaryRemainsPublic() throws Exception {

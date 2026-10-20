@@ -365,3 +365,45 @@ export interface UpdateLegacyUserRequest {
   lastName: string;
   email: string;
 }
+
+export type InterfaceTranslationJobStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'UNSUPPORTED';
+
+export interface InterfaceTranslationJob {
+  status: InterfaceTranslationJobStatus;
+  providerCode: string | null;
+  attempts: number;
+  missingKeys: number;
+  translatedKeys: number;
+  requestedAt: string;
+  nextAttemptAt: string;
+  finishedAt: string | null;
+  lastError: string | null;
+}
+
+/** Coverage of one active interface language (GET /api/interface-translations/overview). */
+export interface InterfaceLanguageCoverage {
+  languageCode: string;
+  /** Azure Translator code used for this language, or null when Azure cannot translate into it. */
+  providerCode: string | null;
+  supported: boolean;
+  englishBase: boolean;
+  requiredKeys: number;
+  translatedKeys: number;
+  missingKeys: number;
+  percentage: number;
+  seedKeys: number;
+  humanKeys: number;
+  machineKeys: number;
+  staleMachineKeys: number;
+  outdatedHumanKeys: number;
+  missingSample: string[];
+  job: InterfaceTranslationJob | null;
+}
+
+export interface InterfaceTranslationOverview {
+  automatic: boolean;
+  providerConfigured: boolean;
+  workerEnabled: boolean;
+  activeLanguagesAvailable: boolean;
+  languages: InterfaceLanguageCoverage[];
+}

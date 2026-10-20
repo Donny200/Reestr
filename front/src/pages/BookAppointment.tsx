@@ -90,7 +90,7 @@ export function BookAppointment() {
         void availability.refetch();
         return;
       }
-      const fields = fieldErrorsOf(error);
+      const fields = fieldErrorsOf(error, t);
       if (Object.keys(fields).length > 0) setErrors(fields);
       setFailure(statusOf(error) === 429
         ? t('appointments.rateLimited', 'Too many booking attempts in a short time. Please wait a few minutes and try again.')

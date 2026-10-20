@@ -167,6 +167,30 @@ class OrganizationControllerSecurityTest {
     }
 
     @Test
+    @WithMockUser(authorities = "ORGANIZATIONS_EDIT_OWN")
+    void editOwnPermissionReachesTranslationsWhereScopeIsChecked() throws Exception {
+        when(organizationService.updateTranslations(eq(7L), any())).thenReturn(organization(true));
+
+        mockMvc.perform(put("/api/organizations/7/translations")
+                        .contentType("application/json")
+                        .content("{\"nameTranslations\":{\"fr\":\"Ministère de la Justice\"}}"))
+                .andExpect(status().isOk());
+
+        verify(organizationService).updateTranslations(eq(7L), any());
+    }
+
+    @Test
+    @WithMockUser(authorities = "ORGANIZATIONS_EDIT")
+    void invalidTranslationsAreRejected() throws Exception {
+        when(organizationService.updateTranslations(eq(7L), any())).thenThrow(new IllegalArgumentException("Invalid BCP 47 language tag: ??"));
+
+        mockMvc.perform(put("/api/organizations/7/translations")
+                        .contentType("application/json")
+                        .content("{\"nameTranslations\":{\"??\":\"x\"}}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     @WithMockUser(authorities = "REPORTS_VIEW")
     void unrelatedPermissionCannotMutateOrganizations() throws Exception {
         mockMvc.perform(post("/api/organizations")
@@ -183,6 +207,10 @@ class OrganizationControllerSecurityTest {
                 .andExpect(status().isForbidden());
         mockMvc.perform(post("/api/organizations/7/verify"))
                 .andExpect(status().isForbidden());
+        mockMvc.perform(put("/api/organizations/7/translations")
+                        .contentType("application/json")
+                        .content("{\"nameTranslations\":{\"fr\":\"X\"}}"))
+                .andExpect(status().isForbidden());
 
         verifyNoInteractions(organizationService);
     }
@@ -192,6 +220,10 @@ class OrganizationControllerSecurityTest {
         mockMvc.perform(post("/api/organizations")
                         .contentType("application/json")
                         .content("{\"name\":\"Ministry of Justice\"}"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(put("/api/organizations/7/translations")
+                        .contentType("application/json")
+                        .content("{\"nameTranslations\":{\"fr\":\"X\"}}"))
                 .andExpect(status().isUnauthorized());
 
         verifyNoInteractions(organizationService);

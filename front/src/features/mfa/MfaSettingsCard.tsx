@@ -126,7 +126,7 @@ export function MfaSettingsCard() {
             {data.required && (
               <InlineAlert tone={data.enrollmentOverdue ? 'danger' : 'warning'}>
                 {data.enrollmentDeadline && !data.enrollmentOverdue
-                  ? `${t('mfa.deadline', 'Your role requires two-factor authentication. Set it up before')} ${formatDate(data.enrollmentDeadline, locale)}.`
+                  ? t('mfa.deadlineDate', { date: formatDate(data.enrollmentDeadline, locale) })
                   : t('mfa.requiredNow', 'Your role requires two-factor authentication. You will be asked to set it up at your next sign-in.')}
               </InlineAlert>
             )}

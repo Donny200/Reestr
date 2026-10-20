@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { CreateFunctionRequest, AdminFunction } from '../src/types/adminFunctions';
 import type { LegacyUserApi, Organization, PublicChange, Region, SessionInfo, StaffMember } from '../src/types/api';
@@ -8,7 +8,7 @@ import type { HelpConversationStatus, SupportContact } from '../src/types/help';
 import type { ReportCategory } from '../src/types/reports';
 import { FUNCTION_PERMISSIONS } from '../src/utils/functionPermissions';
 
-const MIGRATIONS = '../reference-service/src/main/resources/db/migration';
+export const CATALOG = '../reference-service/src/main/resources/i18n/interface';
 
 export const allPermissions = [...FUNCTION_PERMISSIONS, 'FUNCTIONS_MANAGE_ANY_ORGANIZATION'];
 export const organization = { id: 10, name: 'zafar', enabled: true, createdAt: '2026-09-01T00:00:00' };
@@ -18,18 +18,15 @@ export const languages = [
   { id: 3, code: 'uz', name: 'Uzbek', nativeName: 'O‘zbek', defaultLanguage: false },
   { id: 4, code: 'fr', name: 'French', nativeName: 'Français', defaultLanguage: false },
 ];
-function dictionary(language: string) {
-  const values: Record<string, string> = {};
-  const files = readdirSync(MIGRATIONS).filter(name => /^V\d+__.*\.sql$/.test(name))
-    .sort((a, b) => Number(a.slice(1, a.indexOf('__'))) - Number(b.slice(1, b.indexOf('__'))));
-  for (const file of files) {
-    for (const line of readFileSync(`${MIGRATIONS}/${file}`, 'utf8').split('\n').filter(line => line.startsWith("('"))) {
-      const parts = [...line.matchAll(/'((?:[^']|'')*)'/g)].map(part => part[1].replace(/''/g, "'"));
-      if (parts.length === 2) values[parts[0]] = parts[1];
-      if (parts.length === 3 && parts[1] === language) values[parts[0]] = parts[2];
-    }
-  }
-  return values;
+/** What reference-service serves: the English catalog overlaid with each level of the language (fr-FR: fr, fr-FR). */
+export function dictionary(language: string): Record<string, string> {
+  const read = (code: string): Record<string, string> => {
+    const file = `${CATALOG}/${code}.json`;
+    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+  };
+  const parts = language.split('-');
+  const levels = parts.map((_, index) => parts.slice(0, index + 1).join('-'));
+  return Object.assign({}, read('en'), ...levels.filter((code) => code !== 'en').map(read));
 }
 export async function chooseOption(trigger: Locator, value: string) {
   await trigger.click();

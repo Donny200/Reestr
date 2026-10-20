@@ -72,7 +72,7 @@ export function MfaEnrollmentPanel({ enrollment, starting, onStart, onConfirm, c
               {t('mfa.openInApp', 'Open in authenticator app')}
             </a>
           </div>
-          <p className="mt-1 text-xs text-secondary">{t('mfa.accountLabel', 'Account')}: {enrollment.account} · {t('mfa.issuerLabel', 'Issuer')}: {enrollment.issuer} · SHA1, 6 {t('mfa.digits', 'digits')}, 30 s</p>
+          <p className="mt-1 text-xs text-secondary">{t('mfa.accountLabel', 'Account')}: {enrollment.account} · {t('mfa.issuerLabel', 'Issuer')}: {enrollment.issuer} · {t('mfa.parameters', { digits: 6, seconds: 30 })}</p>
         </li>
         <li>{t('mfa.stepConfirm', 'Enter the 6-digit code the app shows now to confirm the enrollment.')}</li>
       </ol>

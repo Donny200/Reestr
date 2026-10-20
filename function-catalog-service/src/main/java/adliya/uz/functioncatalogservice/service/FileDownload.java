@@ -8,7 +8,6 @@ import org.springframework.http.ResponseEntity;
 
 import java.nio.charset.StandardCharsets;
 
-/** A generated file and the attachment response that carries it (CSV, Excel or PDF). */
 public record FileDownload(String filename, MediaType type, byte[] content, boolean truncated) {
 
     public static final MediaType XLSX = MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

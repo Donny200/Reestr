@@ -4,6 +4,7 @@ import adliya.uz.task1.dto.CreateOrganizationRequest;
 import adliya.uz.task1.dto.OrganizationMemberResponse;
 import adliya.uz.task1.dto.OrganizationResponse;
 import adliya.uz.task1.dto.UpdateOrganizationRequest;
+import adliya.uz.task1.dto.UpdateOrganizationTranslationsRequest;
 import adliya.uz.task1.entity.Organization;
 import adliya.uz.task1.service.OrganizationService;
 import jakarta.validation.Valid;
@@ -55,6 +56,14 @@ public class OrganizationController {
     @PreAuthorize("hasAuthority('ORGANIZATIONS_EDIT') or hasAuthority('ORGANIZATIONS_EDIT_OWN')")
     public ResponseEntity<OrganizationResponse> update(@PathVariable Long id, @Valid @RequestBody UpdateOrganizationRequest request) {
         return ResponseEntity.ok(OrganizationResponse.from(organizationService.update(id, request)));
+    }
+
+    /** Human translations of the official name and description; the organization scope is checked in the service. */
+    @PutMapping("/{id}/translations")
+    @PreAuthorize("hasAuthority('ORGANIZATIONS_EDIT') or hasAuthority('ORGANIZATIONS_EDIT_OWN')")
+    public ResponseEntity<OrganizationResponse> updateTranslations(@PathVariable Long id,
+                                                                   @RequestBody UpdateOrganizationTranslationsRequest request) {
+        return ResponseEntity.ok(OrganizationResponse.from(organizationService.updateTranslations(id, request)));
     }
 
     @PostMapping("/{id}/verify")

@@ -2,6 +2,8 @@ package adliya.uz.referenceservice.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.GeneratedValue;
@@ -17,6 +19,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.time.Instant;
 
 @Entity
 @Table(
@@ -51,4 +55,16 @@ public class Translation {
 
     @Column(name = "translation_value", nullable = false, columnDefinition = "TEXT")
     private String translationValue;
+
+    /** Null only for rows written before provenance existed; the catalog synchronizer classifies them on start-up. */
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private TranslationSource source;
+
+    /** Hash of the English text this value was written for; a different current hash marks the value as outdated. */
+    @Column(name = "source_hash", length = 64)
+    private String sourceHash;
+
+    @Column(name = "updated_at")
+    private Instant updatedAt;
 }

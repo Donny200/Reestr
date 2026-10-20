@@ -1,4 +1,9 @@
-import type { CreateOrganizationRequest, Organization, PublicOrganization, UpdateOrganizationRequest } from '../types/api';
+import type {
+  CreateOrganizationRequest,
+  Organization,
+  PublicOrganization,
+  UpdateOrganizationRequest,
+} from '../types/api';
 import { apiRequest } from './http';
 
 export const getPublicOrganizations = () => apiRequest<PublicOrganization[]>('/api/public/organizations');
@@ -20,3 +25,12 @@ export const reactivateOrganization = (id: number) =>
 
 export const verifyOrganization = (id: number) =>
   apiRequest<Organization>(`/api/organizations/${id}/verify`, { method: 'POST' });
+
+export interface OrganizationTranslationsRequest {
+  nameTranslations?: Record<string, string>;
+  descriptionTranslations?: Record<string, string>;
+}
+
+/** Human translations of the official name and description; a sent map replaces that field, a blank value removes a language. */
+export const updateOrganizationTranslations = (id: number, payload: OrganizationTranslationsRequest) =>
+  apiRequest<Organization>(`/api/organizations/${id}/translations`, { method: 'PUT', body: payload });

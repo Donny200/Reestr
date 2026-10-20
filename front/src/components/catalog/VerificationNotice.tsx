@@ -29,7 +29,7 @@ export function VerificationNotice({ info, onSourceOpen }: { info: VerificationI
   const verified = status === 'VERIFIED' || status === 'DUE';
   const Icon = verified ? ShieldCheckIcon : status === 'OUTDATED' ? AlertTriangleIcon : ShieldQuestionIcon;
   const text = verified
-    ? `${t('verification.verifiedOn', 'Reviewed by the organization on')} ${formatDate(info.lastVerifiedAt, locale)}`
+    ? t('verification.verifiedOnDate', { date: formatDate(info.lastVerifiedAt, locale) })
     : status === 'OUTDATED'
       ? t('verification.outdatedPublic', 'This information changed after the organization last reviewed it. A new review is pending.')
       : t('verification.unverifiedPublic', 'The organization has not yet marked this information as reviewed.');

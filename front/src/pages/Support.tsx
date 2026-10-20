@@ -249,7 +249,7 @@ export function Support() {
                         {...control}
                         size="sm"
                         value={category}
-                        placeholder={t('fnAdmin.choose', 'Choose')}
+                        placeholder={t('fnAdmin.choose', 'Select…')}
                         onValueChange={(value) => setCategory(value as ReportCategory)}
                         options={REPORT_CATEGORIES[reportEntity].map((value) => ({ value, label: reportCategoryLabel(value, t) }))}
                       />

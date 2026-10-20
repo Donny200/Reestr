@@ -19,7 +19,7 @@ import { SkeletonText } from '../../components/ui/Skeleton';
 import { EmptyState, ErrorState } from '../../components/ui/States';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/DropdownMenu';
 import { CreateRoleDialog, RolePermissionsDialog } from '../../features/roles/RoleDialogs';
-import { groupPermissions } from '../../features/roles/permissions';
+import { groupPermissions, permissionLabel } from '../../features/roles/permissions';
 import { useAssignRole, useDeleteRole, usePermissions, useRoleAssignmentCandidates, useRoles } from '../../features/roles/queries';
 import { useI18n } from '../../contexts/i18n';
 import { applyServerErrors } from '../../lib/forms';
@@ -124,7 +124,7 @@ export function Roles() {
   const [editing, setEditing] = useState<RoleEntity | null>(null);
   const [deleting, setDeleting] = useState<RoleEntity | null>(null);
 
-  const groups = useMemo(() => groupPermissions(permissions.data ?? [], t('roles.uncategorized', 'Other')), [permissions.data, t]);
+  const groups = useMemo(() => groupPermissions(permissions.data ?? [], t('roles.uncategorized', 'Other'), t), [permissions.data, t]);
 
   const rows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -226,7 +226,7 @@ export function Roles() {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.8fr)_minmax(18rem,1fr)]">
         <div className="space-y-6">
           <Card>
-            <Toolbar summary={`${rows.length} ${t('home.resultsCount')}`}>
+            <Toolbar summary={t('home.resultsCount', { count: rows.length })}>
               <SearchInput value={search} onChange={setSearch} label={t('action.search')} className="sm:w-64" />
             </Toolbar>
             <DataTable
@@ -266,7 +266,7 @@ export function Roles() {
                     <ul className="mt-2 space-y-1.5">
                       {items.map((permission) => (
                         <li key={permission.id} className="rounded-control border border-line bg-background px-3 py-2">
-                          <p className="text-sm font-medium text-foreground">{permission.name}</p>
+                          <p className="text-sm font-medium text-foreground">{permissionLabel(permission, t)}</p>
                           <p className="text-xs text-secondary">{permission.code}</p>
                         </li>
                       ))}

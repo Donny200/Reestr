@@ -81,7 +81,7 @@ export function PublicHeader({ transparent = false }: { transparent?: boolean })
 
   const linkLabel = (link: (typeof links)[number]) => {
     if (link.to === '/support' && supportUnread > 0) {
-      return `${t(link.key, link.fallback)} (${supportUnread} ${t('support.newReplies', 'new')})`;
+      return t('support.linkWithNewReplies', { label: t(link.key, link.fallback), count: supportUnread });
     }
     const count = link.to === '/saved' ? savedCount : 0;
     return count > 0 ? `${t(link.key, link.fallback)} (${count})` : t(link.key, link.fallback);

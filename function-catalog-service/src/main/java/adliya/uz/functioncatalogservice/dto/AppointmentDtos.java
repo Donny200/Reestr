@@ -20,7 +20,6 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
-/** Requests and responses of appointment booking (public) and of organization calendars (staff). */
 public final class AppointmentDtos {
 
     private AppointmentDtos() {}

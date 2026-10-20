@@ -14,7 +14,6 @@ import com.lowagie.text.pdf.PdfWriter;
 
 import java.util.Locale;
 
-/** Pieces shared by the generated PDFs: document metadata, the page footer and simple paragraphs. */
 final class PdfSupport {
 
     private PdfSupport() {}

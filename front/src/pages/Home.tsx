@@ -19,6 +19,7 @@ import { usePublicFunctions } from '../features/functions/queries';
 import { usePageView } from '../features/engagement/tracking';
 import { useRegions } from '../features/reference/queries';
 import { matchesTerms, searchTerms, serviceHaystack } from '../utils/finder';
+import { useCategoryNames } from '../features/functions/useCategoryNames';
 
 export function Home() {
   const { t, locale } = useI18n();
@@ -45,16 +46,21 @@ export function Home() {
 
   const indexes = useMemo(() => new Map(fnList.map((item) => [item.id, serviceHaystack(item, locale, orgSearchText.get(item.organizationId) ?? [])])), [fnList, locale, orgSearchText]);
 
-  const categories = useMemo(
-    () => Array.from(new Set(fnList.map((item) => item.category).filter((value): value is string => Boolean(value)))).sort(),
-    [fnList],
-  );
+  const categoryName = useCategoryNames();
+  /** Categories that published services use, keyed by id and labelled in the interface language. */
+  const categories = useMemo(() => {
+    const byId = new Map<string, string>();
+    fnList.forEach((item) => {
+      if (item.category) byId.set(item.categoryId != null ? String(item.categoryId) : `name:${item.category}`, categoryName(item.categoryId, item.category) ?? item.category);
+    });
+    return Array.from(byId, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, locale));
+  }, [fnList, categoryName, locale]);
 
   const filtered = useMemo(() => {
     const terms = searchTerms(query, locale);
     return fnList.filter((item) => {
       if (organizationId && item.organizationId !== Number(organizationId)) return false;
-      if (category && item.category !== category) return false;
+      if (category && (item.categoryId != null ? String(item.categoryId) : `name:${item.category}`) !== category) return false;
       if (terms.length === 0) return true;
       const index = indexes.get(item.id);
       return index ? matchesTerms(index, terms) : false;
@@ -97,7 +103,7 @@ export function Home() {
             description={t('home.catalogSubtitle')}
             aside={
               <p aria-live="polite" className="inline-flex min-h-10 w-fit items-center rounded-pill border border-line px-4 text-sm font-medium tabular-nums text-secondary">
-                {filtered.length} {t('home.resultsCount')}
+                {t('home.resultsCount', { count: filtered.length })}
               </p>
             }
           />
@@ -129,7 +135,7 @@ export function Home() {
               onValueChange={setCategory}
               options={[
                 { value: '', label: `${t('field.category')} · ${t('status.all')}` },
-                ...categories.map((item) => ({ value: item, label: item })),
+                ...categories,
               ]}
             />
             <div className="flex md:justify-end lg:justify-start">

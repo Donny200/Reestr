@@ -81,7 +81,7 @@ export function SupportThreadView({ messages, pending, organizationName, onRetry
               <article
                 className={cn('max-w-[min(36rem,85%)] rounded-card-sm px-4 py-3 shadow-sm',
                   visitor ? 'rounded-ee-sm bg-ink text-ink-fg' : 'rounded-es-sm border border-line bg-surface text-foreground')}
-                aria-label={visitor ? t('support.youWrote', 'You wrote') : `${t('support.replyFrom', 'Reply from')} ${organizationName(message.organizationId)}`}
+                aria-label={visitor ? t('support.youWrote', 'You wrote') : t('support.replyFromOrganization', { organization: organizationName(message.organizationId) })}
               >
                 {!visitor && <p className="mb-1 text-xs font-semibold text-accent-text">{organizationName(message.organizationId)}</p>}
                 {message.category && (

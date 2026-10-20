@@ -43,7 +43,7 @@ export function SupportSettings({ thread }: { thread: SupportThread }) {
       setRestore('');
       toast.success(t('support.restored', 'Your support conversation is open in this browser'));
     } catch (error) {
-      setRestoreError(fieldErrorsOf(error).code ?? errorMessage(error, t));
+      setRestoreError(fieldErrorsOf(error, t).code ?? errorMessage(error, t));
     }
   };
 
@@ -61,7 +61,7 @@ export function SupportSettings({ thread }: { thread: SupportThread }) {
       setNotify(saved.notifyByEmail);
       toast.success(value ? t('support.contactSaved', 'Contact details saved') : t('support.contactRemoved', 'Contact details removed'));
     } catch (error) {
-      const fields = fieldErrorsOf(error);
+      const fields = fieldErrorsOf(error, t);
       setEmailError(fields.email ?? fields.notifyByEmail ?? errorMessage(error, t));
     }
   };

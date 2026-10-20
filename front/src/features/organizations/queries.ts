@@ -7,8 +7,10 @@ import {
   getPublicOrganizations,
   reactivateOrganization,
   updateOrganization,
+  updateOrganizationTranslations,
   verifyOrganization,
 } from '../../services/organizationService';
+import type { OrganizationTranslationsRequest } from '../../services/organizationService';
 import type { CreateOrganizationRequest } from '../../types/api';
 import { organizationKeys } from '../queryKeys';
 
@@ -37,3 +39,6 @@ export const useDeactivateOrganization = () => useOrganizationMutation((id: numb
 export const useReactivateOrganization = () => useOrganizationMutation((id: number) => reactivateOrganization(id));
 
 export const useVerifyOrganization = () => useOrganizationMutation((id: number) => verifyOrganization(id));
+
+export const useSaveOrganizationTranslations = () =>
+  useOrganizationMutation(({ id, payload }: { id: number; payload: OrganizationTranslationsRequest }) => updateOrganizationTranslations(id, payload));

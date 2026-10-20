@@ -13,7 +13,7 @@ export function applyServerErrors<T extends FieldValues>(
   t?: Translate,
   fieldName: (field: string) => string = (field) => field,
 ): void {
-  const fields = fieldErrorsOf(error);
+  const fields = fieldErrorsOf(error, t);
   const names = Object.keys(fields);
   if (names.length === 0) {
     onFormError(errorMessage(error, t));

@@ -4,13 +4,18 @@ import adliya.uz.functioncatalogservice.entity.FunctionCategory;
 import adliya.uz.functioncatalogservice.entity.InstructionField;
 import adliya.uz.functioncatalogservice.entity.OrgFunction;
 import adliya.uz.functioncatalogservice.entity.TranslatedText;
+import adliya.uz.functioncatalogservice.translation.AzureLanguageCodes;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-/** Which active languages still lack a usable translation; the source language never counts as missing. */
+/**
+ * Which active languages still lack a usable translation. The source language never counts as missing, and neither
+ * does a regional variant written the same way (e.g. {@code fr-fr} or {@code en-gb} for an {@code fr}/{@code en}
+ * source): readers of those tags are shown the source text itself.
+ */
 public final class MissingTranslations {
 
     public static final String DEFAULT_CATEGORY_LANGUAGE = "en";
@@ -21,7 +26,7 @@ public final class MissingTranslations {
         String source = normalize(sourceLanguage);
         return activeLanguages.stream()
                 .map(MissingTranslations::normalize)
-                .filter(code -> !code.isEmpty() && !code.equals(source))
+                .filter(code -> !code.isEmpty() && !code.equals(source) && !sameWrittenLanguage(code, source))
                 .distinct()
                 .sorted()
                 .toList();
@@ -58,6 +63,16 @@ public final class MissingTranslations {
             }
         }
         return true;
+    }
+
+    /** True when both tags map to the same provider language (same language and script, region aside). */
+    public static boolean sameWrittenLanguage(String first, String second) {
+        if (first == null || second == null || first.isBlank() || second.isBlank()) {
+            return false;
+        }
+        return AzureLanguageCodes.providerCode(first, AzureLanguageCodes.KNOWN_PROVIDER_CODES)
+                .flatMap(left -> AzureLanguageCodes.providerCode(second, AzureLanguageCodes.KNOWN_PROVIDER_CODES).map(left::equalsIgnoreCase))
+                .orElse(false);
     }
 
     public static boolean present(Map<String, TranslatedText> translations, String code) {

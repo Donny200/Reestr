@@ -10,7 +10,6 @@ import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.List;
 
-/** Request and response shapes of the visitor side of the support chat. */
 public final class SupportDtos {
 
     public static final String CLIENT_ID_PATTERN = "[A-Za-z0-9_-]{8,64}";

@@ -80,7 +80,7 @@ export function Appointments() {
           <div className="min-w-[14rem]">
             <Select size="sm" aria-label={t('field.organization')} value={organizationId ? String(organizationId) : ''}
               onValueChange={(value) => set({ organization: value })}
-              options={tab === 'availability' ? ownOrganizations : scope.organizations} placeholder={t('fnAdmin.choose', 'Choose')} />
+              options={tab === 'availability' ? ownOrganizations : scope.organizations} placeholder={t('fnAdmin.choose', 'Select…')} />
           </div>
         )}
       </div>

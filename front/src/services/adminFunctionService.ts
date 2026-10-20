@@ -74,3 +74,24 @@ export const requeueTranslation = (id: number) =>
 
 export const translateFunction = (id: number, languages: string[], overwriteMachine = false) =>
   apiRequest<AdminFunction>(`/api/functions/${id}/translate`, { method: 'POST', body: { languages, overwriteMachine } });
+
+export interface TranslationBackfillResult {
+  examined: number;
+  queued: number;
+  alreadyQueued: number;
+  limit: number;
+  limitReached: boolean;
+  revisionsCreated: number;
+  revisionsQueued: number;
+  skippedUnderReview: number;
+}
+
+/**
+ * Queues services that miss translations in an active language (bounded and idempotent; the worker calls Azure later).
+ * With includePublished, published services get a draft revision that is translated and then goes through review.
+ */
+export const backfillTranslations = (includePublished: boolean, limit = 50) =>
+  apiRequest<TranslationBackfillResult>('/api/functions/translations/backfill', {
+    method: 'POST',
+    query: { includePublished, limit },
+  });

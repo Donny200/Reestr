@@ -1,9 +1,11 @@
 package adliya.uz.referenceservice.service;
 
+import adliya.uz.referenceservice.catalog.SourceHash;
 import adliya.uz.referenceservice.config.CacheConfig;
 import adliya.uz.referenceservice.dto.TranslationCoverageResponse;
 import adliya.uz.referenceservice.entity.Translation;
 import adliya.uz.referenceservice.entity.TranslationKey;
+import adliya.uz.referenceservice.entity.TranslationSource;
 import adliya.uz.referenceservice.repository.TranslationKeyRepository;
 import adliya.uz.referenceservice.repository.TranslationRepository;
 import lombok.RequiredArgsConstructor;
@@ -11,8 +13,8 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -29,6 +31,7 @@ public class InterfaceTranslationService {
     private final TranslationRepository translationRepository;
     private final InterfaceTranslationDictionaryService dictionaryService;
     private final LanguageTagNormalizer languageTagNormalizer;
+    private final InterfaceCoverageService coverageService;
 
     public Map<String, String> getTranslations(String languageCode) {
         return dictionaryService.getTranslations(languageTagNormalizer.normalize(languageCode));
@@ -64,6 +67,14 @@ public class InterfaceTranslationService {
                 .stream()
                 .collect(Collectors.toMap(item -> item.getTranslationKey().getId(), Function.identity()));
 
+        boolean english = InterfaceTranslationDictionaryService.SOURCE_LANGUAGE_CODE.equals(code);
+        Map<Long, String> englishByKeyId = english ? Map.of() : translationRepository
+                .findAllByLanguageAndKeyIds(InterfaceTranslationDictionaryService.SOURCE_LANGUAGE_CODE, keyIds)
+                .stream()
+                .collect(Collectors.toMap(item -> item.getTranslationKey().getId(), Translation::getTranslationValue));
+
+        // Every value written here is a human edit: the catalog synchronizer and machine translation never replace it.
+        Instant now = Instant.now();
         List<Translation> changed = new ArrayList<>(normalizedValues.size());
         normalizedValues.forEach((keyName, value) -> {
             TranslationKey key = keysByName.get(keyName);
@@ -77,6 +88,10 @@ public class InterfaceTranslationService {
             } else {
                 translation.setTranslationValue(value);
             }
+            translation.setSource(TranslationSource.HUMAN);
+            String englishText = english ? value : englishByKeyId.get(key.getId());
+            translation.setSourceHash(englishText == null ? null : SourceHash.of(englishText));
+            translation.setUpdatedAt(now);
             changed.add(translation);
         });
         translationRepository.saveAll(changed);
@@ -91,36 +106,21 @@ public class InterfaceTranslationService {
                 .ifPresent(translationRepository::delete);
     }
 
-    @Transactional(readOnly = true)
+    /** Required keys a visitor of this language still sees in English (variants inherit from their parent language). */
     public List<String> getMissingKeys(String languageCode) {
-        String code = languageTagNormalizer.normalize(languageCode);
-        Set<String> translatedKeys = dictionaryService.getExactTranslations(code).keySet();
-        return translationKeyRepository.findAllByActiveTrueOrderByTranslationKeyAsc().stream()
-                .map(TranslationKey::getTranslationKey)
-                .filter(key -> !translatedKeys.contains(key))
-                .toList();
+        return coverageService.coverage(languageTagNormalizer.normalize(languageCode)).missingKeys();
     }
 
-    @Transactional(readOnly = true)
     public TranslationCoverageResponse getCoverage(String languageCode) {
-        String code = languageTagNormalizer.normalize(languageCode);
-        Collection<TranslationKey> activeKeys = translationKeyRepository.findAllByActiveTrueOrderByTranslationKeyAsc();
-        Set<String> translatedKeys = dictionaryService.getExactTranslations(code).keySet();
-        long requiredKeys = activeKeys.stream().filter(TranslationKey::isRequired).count();
-        long translatedRequiredKeys = activeKeys.stream()
-                .filter(TranslationKey::isRequired)
-                .map(TranslationKey::getTranslationKey)
-                .filter(translatedKeys::contains)
-                .count();
-        long missingKeys = requiredKeys - translatedRequiredKeys;
-        double percentage = requiredKeys == 0 ? 100.0 : translatedRequiredKeys * 100.0 / requiredKeys;
+        InterfaceCoverageService.LanguageCoverage coverage = coverageService.coverage(languageTagNormalizer.normalize(languageCode));
+        long missing = coverage.missingKeys().size();
         return new TranslationCoverageResponse(
-                code,
-                requiredKeys,
-                translatedRequiredKeys,
-                missingKeys,
-                percentage,
-                missingKeys == 0
+                coverage.languageCode(),
+                coverage.requiredKeys(),
+                coverage.translatedKeys(),
+                missing,
+                coverage.percentage(),
+                missing == 0
         );
     }
 

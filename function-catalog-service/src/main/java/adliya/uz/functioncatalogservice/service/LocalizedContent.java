@@ -4,6 +4,7 @@ import adliya.uz.functioncatalogservice.entity.InstructionField;
 import adliya.uz.functioncatalogservice.entity.OrgFunction;
 import adliya.uz.functioncatalogservice.entity.TranslatedText;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -19,29 +20,52 @@ public final class LocalizedContent {
 
     public static String text(String original, Map<String, TranslatedText> translations, String language) {
         if (language != null && translations != null) {
-            TranslatedText translated = translations.get(language.toLowerCase(Locale.ROOT));
-            if (translated != null && translated.text() != null && !translated.text().isBlank()) {
-                return translated.text().strip();
+            for (String code : hierarchy(language)) {
+                TranslatedText translated = translations.get(code);
+                if (translated != null && translated.text() != null && !translated.text().isBlank()) {
+                    return translated.text().strip();
+                }
             }
         }
         return original;
     }
 
-    /** Localized value of one instruction field, or null when the card leaves it empty. */
+    /**
+     * Localized value of one instruction field, or null when the card leaves it empty. A regional or script variant
+     * falls back to its parent tag ({@code fr-fr} to {@code fr}) before the source text is used.
+     */
     public static Instruction instruction(OrgFunction function, InstructionField field, String language) {
         String source = field.get(function);
         if (source == null || source.isBlank()) {
             return null;
         }
-        String code = language == null ? null : language.toLowerCase(Locale.ROOT);
-        if (code == null || code.equalsIgnoreCase(function.getSourceLanguage())) {
+        if (language == null) {
             return new Instruction(source.strip(), false, false);
         }
-        TranslatedText translated = function.instructionTranslationsOf(field).get(code);
-        if (translated != null && translated.text() != null && !translated.text().isBlank()) {
-            return new Instruction(translated.text().strip(), TranslatedText.MACHINE.equals(translated.source()), false);
+        String sourceLanguage = function.getSourceLanguage() == null ? null : function.getSourceLanguage().toLowerCase(Locale.ROOT);
+        Map<String, TranslatedText> translations = function.instructionTranslationsOf(field);
+        for (String code : hierarchy(language)) {
+            if (code.equals(sourceLanguage)) {
+                return new Instruction(source.strip(), false, false);
+            }
+            TranslatedText translated = translations.get(code);
+            if (translated != null && translated.text() != null && !translated.text().isBlank()) {
+                return new Instruction(translated.text().strip(), TranslatedText.MACHINE.equals(translated.source()), false);
+            }
         }
         return new Instruction(source.strip(), false, true);
+    }
+
+    /** The tag and its parents, most specific first: {@code uz-latn-uz}, {@code uz-latn}, {@code uz}. */
+    static List<String> hierarchy(String language) {
+        String code = language.trim().replace('_', '-').toLowerCase(Locale.ROOT);
+        List<String> result = new ArrayList<>();
+        while (!code.isEmpty()) {
+            result.add(code);
+            int dash = code.lastIndexOf('-');
+            code = dash < 0 ? "" : code.substring(0, dash);
+        }
+        return result;
     }
 
     /** One list item per non-empty line, leading "1." / "2)" numbering removed (as the public page shows them). */

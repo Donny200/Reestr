@@ -29,9 +29,17 @@ export function appointmentStatusText(appointment: Pick<VisitorAppointment, 'sta
   return t(`appointments.status.${appointment.status}`, appointmentStatusLabels[appointment.status]);
 }
 
-export const weekdayLabels: Record<Weekday, string> = {
-  MONDAY: 'Monday', TUESDAY: 'Tuesday', WEDNESDAY: 'Wednesday', THURSDAY: 'Thursday', FRIDAY: 'Friday', SATURDAY: 'Saturday', SUNDAY: 'Sunday',
-};
+const WEEKDAY_INDEX: Record<Weekday, number> = { MONDAY: 0, TUESDAY: 1, WEDNESDAY: 2, THURSDAY: 3, FRIDAY: 4, SATURDAY: 5, SUNDAY: 6 };
+
+/** Weekday name in the interface language (1 January 2024 was a Monday). */
+export function weekdayName(day: Weekday, locale: string): string {
+  const date = new Date(Date.UTC(2024, 0, 1 + WEEKDAY_INDEX[day], 12));
+  try {
+    return new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat('en', { weekday: 'long', timeZone: 'UTC' }).format(date);
+  }
+}
 
 export const closureKindLabels: Record<ClosureKind, string> = { HOLIDAY: 'Holiday', CLOSED: 'Closed', UNAVAILABLE: 'Unavailable period' };
 

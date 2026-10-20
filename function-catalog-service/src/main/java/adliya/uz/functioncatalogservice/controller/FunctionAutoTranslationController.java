@@ -42,12 +42,16 @@ public class FunctionAutoTranslationController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(queue.retry(id));
     }
 
-    /** Bounded, idempotent backfill of drafts that lack translations in an active language; org-scoped. */
+    /**
+     * Bounded, idempotent backfill of drafts that lack translations in an active language; org-scoped. With
+     * {@code includePublished=true} published cards are covered through draft revisions (never changed in place).
+     */
     @PostMapping("/translations/backfill")
     @PreAuthorize(TRANSLATION_EDITOR)
     public ResponseEntity<TranslationBackfillResponse> backfill(@RequestParam(required = false) Long organizationId,
-                                                                 @RequestParam(required = false) Integer limit) {
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(queue.backfill(organizationId, limit));
+                                                                 @RequestParam(required = false) Integer limit,
+                                                                 @RequestParam(defaultValue = "false") boolean includePublished) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(queue.backfill(organizationId, limit, includePublished));
     }
 
     /** {@code available}: a provider is configured; {@code automatic}: the background worker is also enabled. */

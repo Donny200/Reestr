@@ -219,7 +219,7 @@ export function ServiceFinder() {
                       className="flex min-h-14 items-center justify-between gap-3 rounded-card-sm border border-line bg-background px-4 py-3 text-start text-foreground transition-colors duration-snap fine:hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       <span className="min-w-0 font-medium wrap-anywhere">{t(item.labelKey, item.label)}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-secondary">{intentCounts.get(item.key)} {t('finder.servicesShort', 'services')}</span>
+                      <span className="shrink-0 text-xs tabular-nums text-secondary">{t('catalog.servicesCount', { count: intentCounts.get(item.key) ?? 0 })}</span>
                     </button>
                   ))}
                   <button
@@ -228,7 +228,7 @@ export function ServiceFinder() {
                     className="flex min-h-14 items-center justify-between gap-3 rounded-card-sm border border-dashed border-line bg-background px-4 py-3 text-start text-foreground transition-colors duration-snap fine:hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     <span className="flex items-center gap-2 font-medium"><ListIcon className="h-4 w-4" aria-hidden="true" />{t('finder.showAll', 'Show all services')}</span>
-                    <span className="shrink-0 text-xs tabular-nums text-secondary">{published.length} {t('finder.servicesShort', 'services')}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-secondary">{t('catalog.servicesCount', { count: published.length })}</span>
                   </button>
                 </div>
               </fieldset>
@@ -237,7 +237,7 @@ export function ServiceFinder() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 id={`${resultsId}-title`} className="text-lg font-semibold text-foreground">{t('finder.resultsHeading', 'Matching services')}</h2>
                   <p className="text-sm tabular-nums text-secondary" aria-live="polite">
-                    {results.length} {t('finder.resultsFound', 'services found')}
+                    {t('finder.resultsFound', { count: results.length })}
                   </p>
                 </div>
                 {results.length === 0 ? (

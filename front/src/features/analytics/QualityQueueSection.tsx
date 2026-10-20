@@ -15,6 +15,7 @@ import { QUALITY_ISSUE_TYPES, type QualityIssueType, type QualityQueueItem } fro
 import { formatDate } from '../../utils/format';
 import { localizedText } from '../../utils/translations';
 import { InlineAlert } from '../functions/InlineAlert';
+import { useCategoryNames } from '../functions/useCategoryNames';
 import { ExportButton } from './ExportButton';
 import { useQualityQueue } from './queries';
 import { editorPath, issueGuidance, issueLabel } from './qualityIssues';
@@ -35,6 +36,7 @@ export const QualityQueueSection = forwardRef<HTMLDivElement, QualityQueueSectio
   ref,
 ) {
   const { t, locale, available } = useI18n();
+  const categoryName = useCategoryNames();
   const { hasPermission } = useAuth();
   const filters = { organizationId, categoryId, issue: issue || undefined, status: status || undefined };
   const queue = useQualityQueue(filters);
@@ -61,7 +63,7 @@ export const QualityQueueSection = forwardRef<HTMLDivElement, QualityQueueSectio
                 <FunctionStatusBadge status={item.status} />
                 <span className="tabular-nums">#{item.functionId}</span>
                 {showOrganization && <span>· {organizationName(item.organizationId)}</span>}
-                {item.category && <span>· {item.category}</span>}
+                {item.category && <span>· {categoryName(item.categoryId, item.category)}</span>}
               </span>
             </div>
           );
@@ -112,7 +114,7 @@ export const QualityQueueSection = forwardRef<HTMLDivElement, QualityQueueSectio
           ),
       },
     ],
-    [t, locale, canOpenEditor, languageName, organizationName, showOrganization],
+    [t, locale, canOpenEditor, languageName, organizationName, showOrganization, categoryName],
   );
 
   return (
@@ -166,7 +168,7 @@ export const QualityQueueSection = forwardRef<HTMLDivElement, QualityQueueSectio
           pageSize={10}
           empty={{
             title: t('quality.emptyTitle', 'No cards need attention'),
-            description: t('quality.emptyText', 'Every card in this view has a current verification, an official source, the required fields and all translations.'),
+            description: t('quality.emptyText', 'Every card in this view has a current verification, the required fields, all translations and no unusable links.'),
           }}
         />
       </Card>

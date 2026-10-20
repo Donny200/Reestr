@@ -92,7 +92,7 @@ export function OrganizationDetail() {
             aside={
               !functions.isPending && !functions.error ? (
                 <p className="inline-flex min-h-10 w-fit items-center rounded-pill border border-line px-4 text-sm font-medium tabular-nums text-secondary" aria-live="polite">
-                  {functionList.length} {t('home.resultsCount')}
+                  {t('home.resultsCount', { count: functionList.length })}
                 </p>
               ) : undefined
             }
