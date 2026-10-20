@@ -59,6 +59,7 @@ catalog:
       - http://localhost:3000
       - http://localhost:5173
       - https://rococo-kangaroo-228040.netlify.app
+      - https://reestrgov.netlify.app
     per-client-limit: 20
     per-client-window: 10m
     per-guest-limit: 20
