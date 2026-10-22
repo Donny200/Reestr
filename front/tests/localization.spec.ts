@@ -2,10 +2,15 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
-import { allPermissions, dictionary, setup } from './fixtures';
+import { allPermissions, dictionary, setup, translationOverview } from './fixtures';
 import { createTranslate } from '../src/lib/i18n/translate';
 import { contentFallbacks, directionForLocale } from '../src/lib/i18n/locale';
+import type { InterfaceTranslationJobStatus, InterfaceTranslationOverview } from '../src/types/api';
 import { localizedText } from '../src/utils/translations';
+import {
+  hasActiveTranslationJob, parseTranslationOverview, TranslationOverviewContractError, TRANSLATION_OVERVIEW_POLL_MS,
+  translationOverviewRefetchInterval,
+} from '../src/utils/translationOverview';
 import { runChecks } from '../scripts/check-i18n.mjs';
 
 const en = dictionary('en');
@@ -251,6 +256,76 @@ test.describe('translation coverage in the admin console', () => {
     await german.getByRole('button', { name: en['lang.machineRetry'] }).click();
     await expect(page.getByText(en['lang.machineQueued'])).toBeVisible();
     expect(queued).toEqual(['de']);
+  });
+
+  const withJob = (status: InterfaceTranslationJobStatus | null): InterfaceTranslationOverview => ({
+    ...translationOverview,
+    languages: translationOverview.languages.map((item) => item.languageCode !== 'fr' ? item
+      : { ...item, missingKeys: 4, translatedKeys: 6, percentage: 60, job: status === null ? null : { status, providerCode: 'fr', attempts: 0,
+        missingKeys: 4, translatedKeys: 0, requestedAt: '2026-10-22T08:00:00Z', nextAttemptAt: '2026-10-22T08:00:00Z',
+        finishedAt: status === 'DONE' ? '2026-10-22T08:01:00Z' : null, lastError: null } }),
+  });
+
+  test('the overview response is checked at the service boundary', () => {
+    expect(parseTranslationOverview(translationOverview)).toEqual(translationOverview);
+    const withoutJob = { ...translationOverview.languages[0], job: undefined };
+    expect(parseTranslationOverview({ ...translationOverview, languages: [withoutJob] }).languages[0].job).toBeNull();
+
+    // A reference-service without the route answers /overview as GET /{languageCode}: a dictionary, not an overview.
+    expect(() => parseTranslationOverview(dictionary('en'))).toThrow(/does not implement the overview endpoint/);
+    expect(() => parseTranslationOverview({ ...translationOverview, languages: null })).toThrow(/"languages" is null, expected an array/);
+    expect(() => parseTranslationOverview({ ...translationOverview, languages: undefined })).toThrow(/"languages" is undefined/);
+    expect(() => parseTranslationOverview({ ...translationOverview, languages: 'de' })).toThrow(TranslationOverviewContractError);
+    expect(() => parseTranslationOverview({ ...translationOverview, automatic: undefined })).toThrow(/"automatic" is undefined/);
+    expect(() => parseTranslationOverview({ ...translationOverview, languages: [{ percentage: 5 }] })).toThrow(/languages\[0\]/);
+    expect(() => parseTranslationOverview({ ...translationOverview, languages: [{ languageCode: 'de', job: {} }] })).toThrow(/job/);
+    expect(() => parseTranslationOverview(null)).toThrow(/the body is null/);
+    expect(() => parseTranslationOverview('<!doctype html>')).toThrow(/the body is string/);
+  });
+
+  test('polling continues only while a job is pending or running', () => {
+    expect(translationOverviewRefetchInterval(withJob('PENDING'))).toBe(TRANSLATION_OVERVIEW_POLL_MS);
+    expect(translationOverviewRefetchInterval(withJob('RUNNING'))).toBe(TRANSLATION_OVERVIEW_POLL_MS);
+    for (const status of [null, 'DONE', 'FAILED', 'UNSUPPORTED'] as const) expect(translationOverviewRefetchInterval(withJob(status))).toBe(false);
+    expect(translationOverviewRefetchInterval(undefined)).toBe(false);
+    expect(hasActiveTranslationJob({ ...translationOverview, languages: undefined })).toBe(false);
+    expect(hasActiveTranslationJob({ ...translationOverview, languages: null as never })).toBe(false);
+    expect(hasActiveTranslationJob({ languages: 'RUNNING' as never })).toBe(false);
+    expect(hasActiveTranslationJob({ languages: [null, { job: null }, { job: { status: 'RUNNING' } }] as never })).toBe(true);
+  });
+
+  for (const [name, body] of [
+    ['a dictionary instead of the overview', dictionary('en')],
+    ['null languages', { ...translationOverview, languages: null }],
+  ] as const) test(`the languages page shows an error instead of crashing on ${name}`, async ({ page }) => {
+    const crashes: string[] = [];
+    page.on('pageerror', (error) => crashes.push(error.message));
+    await setup(page, { permissions: [...allPermissions, 'TRANSLATIONS_VIEW_COVERAGE'] });
+    await page.route('**/api/interface-translations/overview', (route) => route.fulfill({ json: body }));
+    await page.goto('/admin/languages');
+    await expect(page.getByRole('alert')).toContainText(`Unexpected response from GET /api/interface-translations/overview`);
+    await expect(page.getByPlaceholder(en['lang.searchPlaceholder'])).toBeVisible();
+    expect(crashes).toEqual([]);
+  });
+
+  test('the languages page reloads the coverage while a job is running and stops once it is done', async ({ page }) => {
+    await page.clock.install();
+    await setup(page, { permissions: [...allPermissions, 'TRANSLATIONS_VIEW_COVERAGE'] });
+    const responses = [withJob('RUNNING'), withJob('DONE')];
+    let requests = 0;
+    await page.route('**/api/interface-translations/overview', (route) =>
+      route.fulfill({ json: responses[Math.min(requests++, responses.length - 1)] }));
+    await page.goto('/admin/languages');
+    await expect(page.locator('[data-language="fr"]')).toContainText(en['lang.job.RUNNING']);
+    expect(requests).toBe(1);
+
+    await page.clock.fastForward(TRANSLATION_OVERVIEW_POLL_MS);
+    await expect(page.locator('[data-language="fr"]')).toContainText(en['lang.job.DONE']);
+    expect(requests).toBe(2);
+
+    await page.clock.fastForward(TRANSLATION_OVERVIEW_POLL_MS * 2);
+    await page.waitForTimeout(300);
+    expect(requests).toBe(2);
   });
 });
 

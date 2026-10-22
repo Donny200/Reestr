@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
 import type { CreateFunctionRequest, AdminFunction } from '../src/types/adminFunctions';
-import type { LegacyUserApi, Organization, PublicChange, Region, SessionInfo, StaffMember } from '../src/types/api';
+import type { LegacyUserApi, Organization, PublicChange, Region, SessionInfo, StaffMember, InterfaceTranslationOverview } from '../src/types/api';
 import type { EngagementCounts, EngagementReport, OrganizationSummary, QualityQueue, QualityReminder } from '../src/types/analytics';
 import type { InformationReport, ReportHistoryEntry } from '../src/types/reports';
 import type { HelpConversationStatus, SupportContact } from '../src/types/help';
@@ -18,6 +18,13 @@ export const languages = [
   { id: 3, code: 'uz', name: 'Uzbek', nativeName: 'O‘zbek', defaultLanguage: false },
   { id: 4, code: 'fr', name: 'French', nativeName: 'Français', defaultLanguage: false },
 ];
+/** GET /api/interface-translations/overview with every fixture language complete and no machine translation job. */
+export const translationOverview: InterfaceTranslationOverview = {
+  automatic: false, providerConfigured: false, workerEnabled: false, activeLanguagesAvailable: true,
+  languages: languages.map(({ code }) => ({ languageCode: code, providerCode: code, supported: true, englishBase: code === 'en',
+    requiredKeys: 10, translatedKeys: 10, missingKeys: 0, percentage: 100, seedKeys: 10, humanKeys: 0, machineKeys: 0,
+    staleMachineKeys: 0, outdatedHumanKeys: 0, missingSample: [], job: null })),
+};
 /** What reference-service serves: the English catalog overlaid with each level of the language (fr-FR: fr, fr-FR). */
 export function dictionary(language: string): Record<string, string> {
   const read = (code: string): Record<string, string> => {
@@ -277,6 +284,7 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
       return reply({}, 202);
     }
     if (path === '/api/languages') return reply(languages);
+    if (path === '/api/interface-translations/overview') return reply(translationOverview);
     if (path.startsWith('/api/interface-translations/')) return reply(dictionary(path.split('/').at(-1) ?? 'en'));
     if (path === '/api/public/organizations' || path === '/api/organizations') return reply(organizations);
     const organizationMatch = path.match(/^\/api\/(?:public\/)?organizations\/(\d+)(?:\/(verify))?$/);

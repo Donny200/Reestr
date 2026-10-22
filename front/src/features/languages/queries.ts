@@ -6,6 +6,7 @@ import {
   getLanguages,
   queueInterfaceMachineTranslation,
 } from '../../services/referenceService';
+import { translationOverviewRefetchInterval } from '../../utils/translationOverview';
 import { languageKeys } from '../queryKeys';
 
 export const useLanguages = () => useQuery({ queryKey: languageKeys.list(), queryFn: getLanguages });
@@ -24,8 +25,7 @@ export const useTranslationOverview = (enabled: boolean) =>
     queryKey: languageKeys.coverage(),
     queryFn: getInterfaceTranslationOverview,
     enabled,
-    refetchInterval: (query) =>
-      query.state.data?.languages.some((item) => item.job?.status === 'PENDING' || item.job?.status === 'RUNNING') ? 15_000 : false,
+    refetchInterval: (query) => translationOverviewRefetchInterval(query.state.data),
   });
 
 export const useQueueMachineTranslation = () => {
