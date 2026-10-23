@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getInterfaceTranslations, getLanguages } from '../services/referenceService';
 import { readStored, writeStored } from '../lib/storage';
-import { readDictionary, writeDictionary } from '../lib/i18n/dictionaryStore';
-import { directionForLocale, sameLocale } from '../lib/i18n/locale';
+import { ENGLISH_CATALOG, loadCuratedCatalog } from '../lib/i18n/catalog';
+import { forgetDictionary, readDictionary, writeDictionary } from '../lib/i18n/dictionaryStore';
+import { canonicalLocale, directionForLocale, sameLocale } from '../lib/i18n/locale';
+import { reportMissingKey } from '../lib/i18n/missing';
 import { createTranslate, type Dictionary } from '../lib/i18n/translate';
 import { I18nContext, type I18nValue, type InterfaceLanguage } from './i18n';
 const DEFAULT_LOCALE = 'uz';
@@ -13,8 +15,13 @@ const BOOT_LABELS: Record<string, string> = { en: 'Loading…', ru: 'Загру�
 
 interface Applied {
   locale: string;
+  /** What the server served (or the stored copy of it); the source of truth when it has a value. */
   dictionary: Dictionary;
+  /** The shipped catalog of the locale, used where the server dictionary has no value of its own. */
+  curated: Dictionary;
 }
+
+const NO_VALUES: Dictionary = {};
 
 function initialLocale(): string {
   if (typeof window === 'undefined') return DEFAULT_LOCALE;
@@ -23,7 +30,14 @@ function initialLocale(): string {
 
 function initialApplied(locale: string): Applied | null {
   const stored = typeof window === 'undefined' ? null : readDictionary(locale);
-  return stored ? { locale, dictionary: stored } : null;
+  return stored ? { locale, dictionary: stored, curated: NO_VALUES } : null;
+}
+
+/** `fr-FR` inherits from `fr` and from itself; the server overlays each level of the tag. */
+function inheritsFrom(locale: string, ancestor: string): boolean {
+  const code = canonicalLocale(locale).toLowerCase();
+  const parent = canonicalLocale(ancestor).toLowerCase();
+  return code === parent || code.startsWith(`${parent}-`);
 }
 
 function sameDictionary(left: Dictionary, right: Dictionary): boolean {
@@ -42,6 +56,7 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
   const [applied, setApplied] = useState<Applied | null>(() => initialApplied(requestedLocale));
   const [available, setAvailable] = useState<InterfaceLanguage[]>([]);
   const dictionaryCache = useRef(new Map<string, Dictionary>());
+  const curatedCache = useRef(new Map<string, Dictionary>());
   const appliedRef = useRef<Applied | null>(applied);
   appliedRef.current = applied;
 
@@ -50,10 +65,20 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
     if (typeof window !== 'undefined') writeStored(STORAGE_KEY, nextLocale);
   }, []);
 
-  const apply = useCallback((locale: string, dictionary: Dictionary) => {
+  const apply = useCallback((locale: string, dictionary: Dictionary, curated: Dictionary) => {
     setApplied((current) =>
-      current && current.locale === locale && sameDictionary(current.dictionary, dictionary) ? current : { locale, dictionary },
+      current && current.locale === locale && current.curated === curated && sameDictionary(current.dictionary, dictionary)
+        ? current
+        : { locale, dictionary, curated },
     );
+  }, []);
+
+  const curatedFor = useCallback(async (locale: string) => {
+    const known = curatedCache.current.get(locale);
+    if (known) return known;
+    const curated = await loadCuratedCatalog(locale);
+    curatedCache.current.set(locale, curated);
+    return curated;
   }, []);
 
   const reloadLanguages = useCallback(async () => {
@@ -83,24 +108,32 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
 
   useEffect(() => {
     const cached = dictionaryCache.current.get(requestedLocale);
-    if (cached) {
-      apply(requestedLocale, cached);
+    const cachedCurated = curatedCache.current.get(requestedLocale);
+    if (cached && cachedCurated) {
+      apply(requestedLocale, cached, cachedCurated);
       return undefined;
     }
-    // A stored copy from an earlier visit is shown at once; the request below still refreshes it.
-    const stored = readDictionary(requestedLocale);
-    if (stored) apply(requestedLocale, stored);
-
     let cancelled = false;
+    const curated = curatedFor(requestedLocale);
+    // A stored copy from an earlier visit is shown at once (with the shipped catalog under it for keys it predates);
+    // the request below still refreshes it.
+    const stored = readDictionary(requestedLocale);
+    if (stored) {
+      void curated.then((values) => {
+        if (!cancelled) apply(requestedLocale, stored, values);
+      });
+    }
+
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), DICTIONARY_TIMEOUT_MS);
     getInterfaceTranslations(requestedLocale, controller.signal)
-      .then((dictionary) => {
+      .then(async (dictionary) => {
         dictionaryCache.current.set(requestedLocale, dictionary);
         writeDictionary(requestedLocale, dictionary);
-        if (!cancelled) apply(requestedLocale, dictionary);
+        const values = await curated;
+        if (!cancelled) apply(requestedLocale, dictionary, values);
       })
-      .catch(() => {
+      .catch(async () => {
         if (cancelled) return;
         const current = appliedRef.current;
         if (stored) return;
@@ -109,7 +142,9 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
           setRequestedLocale(current.locale);
           writeStored(STORAGE_KEY, current.locale);
         } else if (!current) {
-          apply(requestedLocale, {});
+          // Nothing received yet: the shipped catalog alone still shows every label in the chosen language.
+          const values = await curated;
+          if (!cancelled) apply(requestedLocale, NO_VALUES, values);
         }
       })
       .finally(() => window.clearTimeout(timeout));
@@ -119,18 +154,31 @@ export function I18nProvider({ children }: {children: ReactNode;}) {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [requestedLocale, apply]);
+  }, [requestedLocale, apply, curatedFor]);
 
-  const refreshDictionary = useCallback(async () => {
+  const refreshDictionary = useCallback(async (changedLocale?: string) => {
     const locale = appliedRef.current?.locale ?? requestedLocale;
+    if (changedLocale) {
+      // Copies of other languages that inherit the changed one are dropped, so switching to them loads the new values.
+      for (const code of [...dictionaryCache.current.keys()]) {
+        if (!sameLocale(code, locale) && inheritsFrom(code, changedLocale)) dictionaryCache.current.delete(code);
+      }
+      forgetDictionary(changedLocale);
+      if (!inheritsFrom(locale, changedLocale)) return;
+    }
     const dictionary = await getInterfaceTranslations(locale);
     dictionaryCache.current.set(locale, dictionary);
     writeDictionary(locale, dictionary);
-    apply(locale, dictionary);
-  }, [requestedLocale, apply]);
+    apply(locale, dictionary, await curatedFor(locale));
+  }, [requestedLocale, apply, curatedFor]);
 
   const locale = applied?.locale ?? requestedLocale;
-  const t = useMemo(() => createTranslate(applied?.dictionary ?? {}, locale), [applied, locale]);
+  const t = useMemo(
+    () => createTranslate(applied?.dictionary ?? NO_VALUES, locale, {
+      curated: applied?.curated ?? NO_VALUES, english: ENGLISH_CATALOG, onMissing: reportMissingKey,
+    }),
+    [applied, locale],
+  );
   const direction = directionForLocale(locale);
 
   useEffect(() => {

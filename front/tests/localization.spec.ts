@@ -213,14 +213,15 @@ for (const language of ['fr', 'ru', 'uz']) test.describe(`no English catalog tex
   }
 });
 
-test('the English-leftover scan notices a label the French dictionary lacks', async ({ page }) => {
+test('the English-leftover scan notices English text in a French page', async ({ page }) => {
   await setup(page, { anonymous: true });
+  // A value stored on the server always wins over the shipped catalog, so English text stored there stays visible.
   await page.route('**/api/interface-translations/fr', (route) =>
-    route.fulfill({ json: { ...fr, 'home.catalogTitle': en['home.catalogTitle'] } }));
+    route.fulfill({ json: { ...fr, 'home.catalogTitle': en['home.orgsTitle'] } }));
   await page.addInitScript(() => window.localStorage.setItem('reestr-task-locale', 'fr'));
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: en['home.catalogTitle'] })).toBeVisible();
-  expect(englishLeftovers(await visibleStrings(page))).toContain(`home.catalogTitle: ${en['home.catalogTitle']}`);
+  await expect(page.getByRole('heading', { name: en['home.orgsTitle'] }).first()).toBeVisible();
+  expect(englishLeftovers(await visibleStrings(page)).some((entry) => entry.endsWith(`: ${en['home.orgsTitle']}`))).toBe(true);
 });
 
 test.describe('translation coverage in the admin console', () => {
@@ -252,7 +253,10 @@ test.describe('translation coverage in the admin console', () => {
     await expect(german).toContainText('40');
     await expect(german).toContainText(en['lang.job.FAILED']);
     await expect(page.locator('[data-language="uz-Cyrl"]')).toContainText(en['lang.providerUnsupported']);
-    await expect(page.locator('[data-language="uz-Cyrl"]').getByRole('button')).toHaveCount(0);
+    const cyrillic = page.locator('[data-language="uz-Cyrl"]');
+    await expect(cyrillic.getByRole('button', { name: en['lang.machineFill'] })).toHaveCount(0);
+    await expect(cyrillic.getByRole('button', { name: en['lang.machineRetry'] })).toHaveCount(0);
+    await expect(cyrillic.getByRole('button', { name: en['lang.export'] })).toBeVisible();
     await german.getByRole('button', { name: en['lang.machineRetry'] }).click();
     await expect(page.getByText(en['lang.machineQueued'])).toBeVisible();
     expect(queued).toEqual(['de']);
@@ -339,7 +343,8 @@ test.describe('translation helpers', () => {
     expect(russian('items', { count: 1234 })).toBe('1 234 услуги'.replace(' ', ' '));
     expect(russian('greeting', { name: 'Ann' })).toBe('Привет, Ann!');
     expect(russian('missing.key', 'English fallback')).toBe('English fallback');
-    expect(russian('missing.key')).toBe('missing.key');
+    // A key nothing defines is never shown as such.
+    expect(russian('missing.someLabel')).toBe('Some label');
     expect(russian('greeting')).toBe('Привет, {name}!');
     const french = createTranslate({ 'home.resultsCount_one': '{count} résultat', 'home.resultsCount_other': '{count} résultats' }, 'fr');
     expect(french('home.resultsCount', { count: 0 })).toBe('0 résultat');

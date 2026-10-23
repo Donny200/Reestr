@@ -136,7 +136,9 @@ services:
     restart: unless-stopped
 
   front:
-    build: ./front
+    build:
+      context: .
+      dockerfile: front/Dockerfile
     container_name: front
     ports:
       - "3000:80"

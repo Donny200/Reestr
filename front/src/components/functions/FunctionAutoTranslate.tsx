@@ -8,8 +8,10 @@ import { InlineAlert } from '../../features/functions/InlineAlert';
 import { hasFunctionTranslation } from '../../utils/functionLocalization';
 import { errorMessage, type Translate } from '../../utils/errors';
 import { formatDateTime } from '../../utils/format';
+import { languageDisplayName } from '../../lib/i18n/locale';
 import { Button } from '../ui/Button';
 import { SkeletonText } from '../ui/Skeleton';
+import { TechnicalDetails } from '../ui/States';
 import { isEditableStatus, type AdminFunction, type MachineTranslationSummary } from '../../types/adminFunctions';
 
 interface Props {
@@ -92,14 +94,14 @@ export function FunctionAutoTranslate({ record, language, blocked, busy }: Props
           <p className="font-medium text-foreground">{t('fnAdmin.autoTitle', 'Automatic translation')}</p>
           {missing.length > 0 ? (
             <p className="mt-0.5 text-secondary">
-              {t('fnAdmin.translationGaps')} <span className="micro">{missing.join(', ')}</span>
+              {t('fnAdmin.translationGaps')} <span className="micro">{missing.map((code) => languageDisplayName(code, locale)).join(', ')}</span>
             </p>
           ) : (
             <p className="mt-0.5 text-secondary">{t('fnAdmin.allTranslated', 'Every active language is covered.')}</p>
           )}
           {manualOnly.length > 0 && (
             <p className="mt-0.5 text-xs text-secondary">
-              {t('fnAdmin.autoUnsupported', { languages: manualOnly.join(', ') })}
+              {t('fnAdmin.autoUnsupported', { languages: manualOnly.map((code) => languageDisplayName(code, locale)).join(', ') })}
             </p>
           )}
           {automatic && (
@@ -167,7 +169,7 @@ function JobStatus({ job, locale, t }: { job: MachineTranslationSummary; locale:
         <span className="font-medium">{t(key, fallback)}</span>
         {details.length > 0 && <span className="text-secondary"> · {details.join(' · ')}</span>}
       </span>
-      {job.lastError && <span className="mt-1 block text-xs" lang="en">{job.lastError}</span>}
+      {job.lastError && <TechnicalDetails text={job.lastError} />}
     </InlineAlert>
   );
 }

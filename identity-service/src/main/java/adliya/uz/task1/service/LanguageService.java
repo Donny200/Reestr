@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.IllformedLocaleException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -50,7 +51,7 @@ public class LanguageService {
             return List.of();
         }
         String needle = query.trim().toLowerCase(Locale.ROOT);
-        Set<String> addedCodes = languageRepository.findAll().stream()
+        Set<String> addedCodes = languageRepository.findAllByActiveTrue().stream()
                 .map(language -> language.getCode().toLowerCase(Locale.ROOT))
                 .collect(Collectors.toSet());
 
@@ -62,16 +63,31 @@ public class LanguageService {
                 .toList();
     }
 
+    /**
+     * Enables a language by its canonical BCP 47 tag. A language removed earlier comes back as the same row: its
+     * interface and content translations were never deleted (reference-service and function-catalog-service keep them
+     * by tag), so they are served again at once and only missing or outdated texts go to machine translation.
+     */
     @Transactional
     public Language add(AddLanguageRequest request) {
         Locale locale = parseLocale(request.code());
         String code = locale.toLanguageTag();
-        if (languageRepository.existsByCodeIgnoreCase(code)) {
-            throw new IllegalStateException("Language already enabled: " + code);
-        }
         String nativeName = StringUtils.hasText(request.nativeName())
                 ? request.nativeName().trim()
                 : nativeName(locale);
+        Optional<Language> existing = languageRepository.findByCodeIgnoreCase(code);
+        if (existing.isPresent()) {
+            Language language = existing.get();
+            if (language.isActive()) {
+                throw new IllegalStateException("Language already enabled: " + code);
+            }
+            language.setCode(code);
+            language.setActive(true);
+            if (StringUtils.hasText(request.nativeName())) {
+                language.setNameNative(nativeName);
+            }
+            return languageRepository.save(language);
+        }
         return languageRepository.save(Language.builder()
                 .code(code)
                 .nameNative(nativeName)
@@ -80,6 +96,10 @@ public class LanguageService {
                 .build());
     }
 
+    /**
+     * Removes a language from the interface by deactivating it. The row and every translation stored for the tag stay,
+     * so adding the language again restores them (see {@link #add}).
+     */
     @Transactional
     public void remove(Long id) {
         Language language = languageRepository.findById(id)
@@ -87,7 +107,8 @@ public class LanguageService {
         if (language.isDefault()) {
             throw new IllegalStateException("The default language cannot be removed: " + language.getCode());
         }
-        languageRepository.delete(language);
+        language.setActive(false);
+        languageRepository.save(language);
     }
 
     private static Locale parseLocale(String rawCode) {

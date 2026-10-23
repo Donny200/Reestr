@@ -55,19 +55,57 @@ export function formatNumber(value: number, locale: string): string {
   return format.format(value);
 }
 
-export function createTranslate(dictionary: Dictionary, locale: string): Translate {
-  const lookup = (key: string, params: TranslateParams | undefined): string | undefined => {
+/**
+ * Layers under the server dictionary, used only where it has no value of its own:
+ * - `curated`: the shipped catalog of the locale's same-script chain (`fr-FR` → `fr`; `uz-Cyrl` has none), so a server
+ *   that is older than this build, unreachable, or still translating never leaves a label in English or as a key;
+ * - `english`: the shipped English source, the last real text.
+ * The server answers with its English base for keys the locale lacks; such a value (equal to the English source) gives
+ * way to a curated translation.
+ */
+export interface TranslateFallbacks {
+  curated?: Dictionary;
+  english?: Dictionary;
+  /** Called once per lookup of a key that no layer defines (a catalog bug; the checks should have caught it). */
+  onMissing?: (key: string) => void;
+}
+
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+
+/** Readable text for a key nothing defines: `nav.appointments` → "Appointments". Never shown when the catalog is complete. */
+export function humanizeKey(key: string): string {
+  const segments = key.replace(PLURAL_SUFFIX, '').split('.').filter(Boolean);
+  const last = segments[segments.length - 1] ?? key;
+  const words = last.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim().toLowerCase();
+  return words ? words[0].toUpperCase() + words.slice(1) : key;
+}
+
+export function createTranslate(dictionary: Dictionary, locale: string, fallbacks: TranslateFallbacks = {}): Translate {
+  const { curated = {}, english = {}, onMissing } = fallbacks;
+  const valueOf = (name: string): string | undefined => {
+    const served = dictionary[name] || undefined;
+    const own = curated[name] || undefined;
+    if (served && !(own && served === english[name] && own !== served)) return served;
+    return own;
+  };
+  const lookup = (key: string, params: TranslateParams | undefined, last: (name: string) => string | undefined) => {
     const count = params?.count;
-    if (typeof count === 'number') {
-      const plural = dictionary[`${key}_${rulesFor(locale).select(count)}`] || dictionary[`${key}_other`];
-      if (plural) return plural;
+    const names = typeof count === 'number' ? [`${key}_${rulesFor(locale).select(count)}`, `${key}_other`, key] : [key];
+    for (const name of names) {
+      const value = last(name);
+      if (value) return value;
     }
-    return dictionary[key] || undefined;
+    return undefined;
   };
   const translate = (key: string, fallbackOrParams?: string | TranslateParams, maybeParams?: TranslateParams): string => {
     const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined;
     const params = typeof fallbackOrParams === 'object' ? fallbackOrParams : maybeParams;
-    return interpolate(lookup(key, params) ?? fallback ?? key, params, locale);
+    let text = lookup(key, params, valueOf) ?? fallback ?? lookup(key, params, (name) => english[name] || undefined);
+    if (text === undefined) {
+      onMissing?.(key);
+      text = humanizeKey(key);
+    }
+    return interpolate(text, params, locale);
   };
   return Object.assign(translate, { locale }) as Translate;
 }

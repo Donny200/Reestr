@@ -19,8 +19,11 @@ export interface I18nValue {
   t: Translate;
   available: InterfaceLanguage[];
   reloadLanguages: () => Promise<void>;
-  /** Fetches the current dictionary again (after translations were edited or machine-translated). */
-  refreshDictionary: () => Promise<void>;
+  /**
+   * Fetches the current dictionary again (after translations were edited or machine-translated). With a locale, only
+   * when the dictionary on screen inherits from it (`fr` for `fr-FR`); other cached copies of that locale are dropped.
+   */
+  refreshDictionary: (changedLocale?: string) => Promise<void>;
 }
 
 export const I18nContext = createContext<I18nValue | null>(null);

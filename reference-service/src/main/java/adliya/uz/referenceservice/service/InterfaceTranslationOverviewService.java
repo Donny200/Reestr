@@ -28,7 +28,7 @@ public class InterfaceTranslationOverviewService {
     private final InterfaceTranslationProperties properties;
 
     public InterfaceTranslationOverview overview() {
-        Optional<Set<String>> active = activeLanguages.activeLanguageCodes();
+        Optional<Set<String>> active = activeLanguages.currentActiveLanguageCodes();
         Set<String> codes = new TreeSet<>(active.orElse(Set.of()));
         Map<String, InterfaceTranslationJob> jobs = machineTranslation.jobs(codes);
         List<InterfaceTranslationOverview.LanguageStatus> languages = coverageService.coverage(codes).values().stream()

@@ -24,7 +24,8 @@ public class InterfaceTranslationDictionaryService {
     @Transactional(readOnly = true)
     public Map<String, String> getTranslations(String languageCode) {
         Map<String, String> result = dictionaryForCode(SOURCE_LANGUAGE_CODE);
-        for (String candidate : LanguageHierarchy.of(languageCode)) {
+        // Same script only: uz-Cyrl never shows Latin Uzbek; what the language lacks is shown in English.
+        for (String candidate : LanguageHierarchy.sameScript(languageCode)) {
             if (!SOURCE_LANGUAGE_CODE.equals(candidate)) {
                 result.putAll(dictionaryForCode(candidate));
             }

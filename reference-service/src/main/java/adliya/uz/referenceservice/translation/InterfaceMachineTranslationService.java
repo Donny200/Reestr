@@ -106,10 +106,14 @@ public class InterfaceMachineTranslationService {
         return queued;
     }
 
-    /** Explicit retry from the admin console: queues the language now, whatever its previous state. */
+    /**
+     * Explicit retry or update from the admin console: queues the language now. A job that a worker holds (RUNNING
+     * within its lease) is returned unchanged, so the same texts are never sent to the provider twice; the job only
+     * sends what is still missing or stale when it runs, so a language that is complete costs no provider call.
+     */
     public InterfaceTranslationJob requeue(String rawLanguageCode, Instant now) {
         String code = normalizer.normalize(rawLanguageCode);
-        Set<String> active = activeLanguages.activeLanguageCodes().orElse(null);
+        Set<String> active = activeLanguages.currentActiveLanguageCodes().orElse(null);
         if (active != null && active.stream().noneMatch(code::equalsIgnoreCase)) {
             throw new NoSuchElementException("Language is not active: " + code);
         }
@@ -117,6 +121,9 @@ public class InterfaceMachineTranslationService {
         return Objects.requireNonNull(transaction.execute(status -> {
             InterfaceTranslationJob job = jobs.findByLanguageCode(code)
                     .orElseGet(() -> InterfaceTranslationJob.builder().languageCode(code).build());
+            if (job.getStatus() == InterfaceTranslationJobStatus.RUNNING && job.getNextAttemptAt().isAfter(now)) {
+                return job;
+            }
             return jobs.save(reset(job, coverage.keysToTranslate().size(), now));
         }));
     }

@@ -19,7 +19,7 @@ import { useI18n } from '../../contexts/i18n';
 import { cn } from '../../lib/cn';
 import type { Language } from '../../types/api';
 import { errorMessage } from '../../utils/errors';
-import { languageDisplayName } from '../../lib/i18n/locale';
+import { canonicalLocale, languageDisplayName } from '../../lib/i18n/locale';
 import { TranslationCoverageCard } from '../../features/languages/TranslationCoverageCard';
 
 export function Languages() {
@@ -33,11 +33,11 @@ export function Languages() {
   const debouncedQuery = useDebouncedValue(query.trim());
   const results = useLanguageSearch(debouncedQuery);
 
-  const existingCodes = useMemo(() => new Set((languages.data ?? []).map((item) => item.code.toLowerCase())), [languages.data]);
+  const existingCodes = useMemo(() => new Set((languages.data ?? []).map((item) => canonicalLocale(item.code).toLowerCase())), [languages.data]);
   const searching = debouncedQuery !== query.trim() || (results.isFetching && !results.data);
   const directCode = !searching && !results.error && results.data?.length === 0 ? query.trim() : '';
   const codeToAdd = selectedCode || directCode;
-  const codeAlreadyAdded = existingCodes.has(codeToAdd.toLowerCase());
+  const codeAlreadyAdded = existingCodes.has(canonicalLocale(codeToAdd).toLowerCase());
 
   const submitAdd = () => {
     if (!codeToAdd || codeAlreadyAdded) return;
@@ -56,7 +56,7 @@ export function Languages() {
     if (!deleting) return;
     remove.mutate(deleting.id, {
       onSuccess: async () => {
-        toast.success(t('toast.deleted'));
+        toast.success(t('lang.removed'));
         setDeleting(null);
         await reloadLanguages();
       },
@@ -103,7 +103,7 @@ export function Languages() {
           row.original.defaultLanguage ? (
             <span className="text-xs text-secondary">{t('lang.default')}</span>
           ) : (
-            <Button variant="ghost" size="iconSm" aria-label={`${t('action.delete')}: ${row.original.nativeName}`} className="text-danger fine:hover:bg-status-danger-bg fine:hover:text-danger" onClick={() => setDeleting(row.original)}>
+            <Button variant="ghost" size="iconSm" aria-label={`${t('lang.remove')}: ${row.original.nativeName}`} className="text-danger fine:hover:bg-status-danger-bg fine:hover:text-danger" onClick={() => setDeleting(row.original)}>
               <Trash2Icon aria-hidden="true" />
             </Button>
           ),
@@ -213,9 +213,9 @@ export function Languages() {
 
       <ConfirmModal
         open={Boolean(deleting)}
-        title={t('action.delete')}
+        title={t('lang.removeTitle')}
         message={`${deleting?.nativeName ?? ''} — ${t('lang.deleteConfirm')}`}
-        confirmLabel={t('action.delete')}
+        confirmLabel={t('lang.remove')}
         cancelLabel={t('action.cancel')}
         loading={remove.isPending}
         onConfirm={submitDelete}

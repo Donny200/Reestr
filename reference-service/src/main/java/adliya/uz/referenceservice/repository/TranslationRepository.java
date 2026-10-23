@@ -59,6 +59,9 @@ public interface TranslationRepository extends JpaRepository<Translation, Long> 
             """)
     List<Translation> findAllWithKeys();
 
+    @Query("select distinct translation.languageCode from Translation translation")
+    List<String> findLanguageCodes();
+
     Optional<Translation> findByLanguageCodeAndTranslationKey_TranslationKey(
             String languageCode,
             String translationKey

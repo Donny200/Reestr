@@ -50,9 +50,23 @@ export function contentFallbacks(locale: string): string[] {
   return chain;
 }
 
-/** Same language, ignoring case and `_` vs `-`. */
+/**
+ * Canonical BCP 47 form (`UZ_cyrl_uz` → `uz-Cyrl-UZ`, `iw` → `he`), as the backend stores it. A tag the runtime
+ * cannot parse is only cleaned up (`_` → `-`, letter case by subtag kind).
+ */
+export function canonicalLocale(locale: string): string {
+  const tag = locale.trim().replace(/_/g, '-');
+  try {
+    return Intl.getCanonicalLocales(tag)[0] ?? tag;
+  } catch {
+    const { language, script, region } = parts(tag);
+    return [language, script, region].filter(Boolean).join('-') || tag;
+  }
+}
+
+/** Same language tag once both are canonical (case, `_` vs `-`, deprecated aliases). */
 export function sameLocale(left: string, right: string): boolean {
-  return left.replace(/_/g, '-').toLowerCase() === right.replace(/_/g, '-').toLowerCase();
+  return canonicalLocale(left).toLowerCase() === canonicalLocale(right).toLowerCase();
 }
 
 const displayNames = new Map<string, Intl.DisplayNames | null>();

@@ -1,0 +1,13 @@
+# Used by BuildKit for front/Dockerfile (context: repository root). Only the frontend and the interface catalog are sent.
+*
+!front
+!reference-service/src/main/resources/i18n/interface
+front/node_modules
+front/dist
+front/test-results
+front/playwright-report
+front/tests
+front/.env
+front/.env.*
+!front/.env.example
+**/*.log

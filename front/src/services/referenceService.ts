@@ -1,6 +1,8 @@
-import type { InterfaceTranslationJob, InterfaceTranslationOverview, Language, LanguageSearchResult, Region } from '../types/api';
+import type {
+  InterfaceTranslationImportResult, InterfaceTranslationJob, InterfaceTranslationOverview, Language, LanguageSearchResult, Region,
+} from '../types/api';
 import { parseTranslationOverview, TRANSLATION_OVERVIEW_PATH } from '../utils/translationOverview';
-import { apiRequest } from './http';
+import { apiDownload, apiRequest } from './http';
 
 export const getRegions = () => apiRequest<Region[]>('/api/regions');
 
@@ -23,3 +25,13 @@ export const getInterfaceTranslationOverview = async (): Promise<InterfaceTransl
 /** Queues (or retries) filling the language's missing interface entries; the server's worker calls Azure later. */
 export const queueInterfaceMachineTranslation = (languageCode: string) =>
   apiRequest<InterfaceTranslationJob>(`/api/interface-translations/${encodeURIComponent(languageCode)}/machine-translation`, { method: 'POST' });
+
+/** Downloads the JSON backup of one language's stored translations, or of every language without a code. */
+export const exportInterfaceTranslations = (languageCode?: string) =>
+  apiDownload(languageCode ? `/api/interface-translations/${encodeURIComponent(languageCode)}/export` : '/api/interface-translations/export');
+
+/** Restores a backup made by exportInterfaceTranslations; values people edited here are kept. */
+export const importInterfaceTranslations = (languageCode: string, backup: unknown) =>
+  apiRequest<InterfaceTranslationImportResult>(`/api/interface-translations/${encodeURIComponent(languageCode)}/import`, {
+    method: 'POST', body: backup,
+  });

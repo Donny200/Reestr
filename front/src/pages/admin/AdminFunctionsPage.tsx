@@ -124,7 +124,7 @@ export function AdminFunctionsPage() {
             {row.original.revision && (
               <Link to={`/admin/functions/${row.original.revision.id}`} className="rounded-sm" lang={locale}>
                 <StatusPill tone={row.original.revision.status === 'PENDING_REVIEW' ? 'pending' : 'draft'}>
-                  {t(`fnAdmin.revisionBadge.${row.original.revision.status}`, row.original.revision.status === 'PENDING_REVIEW' ? 'Revision pending review' : 'Draft revision')}
+                  {row.original.revision.status === 'PENDING_REVIEW' ? t('fnAdmin.revisionBadge.PENDING_REVIEW') : t('fnAdmin.revisionBadge.DRAFT')}
                 </StatusPill>
               </Link>
             )}

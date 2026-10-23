@@ -14,3 +14,11 @@ export function writeStored(key: string, value: string): void {
     // Storage blocked: the choice lasts for this page only.
   }
 }
+
+export function removeStored(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Storage blocked: nothing was stored.
+  }
+}

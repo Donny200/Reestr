@@ -400,6 +400,18 @@ export interface InterfaceLanguageCoverage {
   job: InterfaceTranslationJob | null;
 }
 
+/** Outcome of POST /api/interface-translations/{lang}/import (a JSON backup from …/export). */
+export interface InterfaceTranslationImportResult {
+  languageCode: string;
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** Values a person edited in this installation, left as they are. */
+  keptHuman: number;
+  skipped: number;
+  unknownKeys: string[];
+}
+
 export interface InterfaceTranslationOverview {
   automatic: boolean;
   providerConfigured: boolean;

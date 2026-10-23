@@ -6,8 +6,10 @@
  * and curated translations. This check fails when:
  *   - a curated language misses a key, has an empty value, loses a {placeholder}, or lacks a plural form its
  *     language needs (Intl.PluralRules categories);
+ *   - a curated language keeps the English text unchanged (untranslated) without being listed in SAME_AS_ENGLISH;
  *   - the frontend or a server-generated document uses a key that the catalog does not define, or an inline English
- *     fallback that differs from the catalog;
+ *     fallback that differs from the catalog. Keys are found in t('…') calls, in `labelKey`/`titleKey`-style properties
+ *     and in any string literal shaped like a key of a catalog namespace (`nav.appointments` in a navigation table);
  *   - user-visible text is hard-coded in the frontend instead of going through t(): JSX text, visible attributes
  *     (aria-*, title, placeholder, alt, label, ...), string children, toast()/confirm() messages, column headers;
  *   - the catalog holds keys that nothing references any more.
@@ -62,6 +64,20 @@ const placeholders = (text) => [...text.matchAll(/\{([A-Za-z0-9_.]+)\}/g)].map((
 const hasWords = (text) => /\p{L}{2,}/u.test(text);
 const linguistic = (text) => hasWords(text) && !NOT_LINGUISTIC.some((pattern) => pattern.test(text.trim()));
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+/**
+ * Curated values that are rightly identical to the English source: names, abbreviations and words a language shares
+ * with English. Any other identical value is reported as untranslated.
+ */
+const SAME_AS_ENGLISH = {
+  '*': ['app.name', 'field.id', 'legacy.badge', 'mfa.column'],
+  ru: ['support.email'],
+  uz: ['role.moderator', 'role.superAdmin'],
+  fr: ['admin.summaryFunctions', 'analytics.total', 'appointments.closureKind', 'appointments.date', 'appointments.service',
+    'catalog.servicesCount_one', 'catalog.servicesCount_other', 'contact.latitude', 'contact.longitude', 'documents.copies',
+    'documents.form.ORIGINAL', 'export.col.service', 'export.page', 'field.actions', 'field.description',
+    'finder.reason.description', 'fnAdmin.originalText', 'lang.code', 'nav.catalog', 'nav.functions', 'orgs.translationsOriginal', 'reports.service',
+    'reports.type', 'reports.typeFunction', 'roles.permissions', 'support.email', 'support.message', 'support.messages'],
+};
 
 function pluralBases(keys) {
   const bases = new Set();
@@ -86,6 +102,9 @@ function checkCatalog(catalog, errors) {
         errors.push(`catalog: ${language}.json has an empty value for ${key}`);
       } else if (value !== undefined && placeholders(value) !== placeholders(source[key])) {
         errors.push(`catalog: ${language}.json ${key} has placeholders {${placeholders(value)}} instead of {${placeholders(source[key])}}`);
+      } else if (language !== SOURCE_LANGUAGE && value === source[key] && hasWords(value)
+        && ![...(SAME_AS_ENGLISH['*'] ?? []), ...(SAME_AS_ENGLISH[language] ?? [])].includes(key)) {
+        errors.push(`catalog: ${language}.json ${key} is the English text "${value.slice(0, 60)}" (untranslated); translate it or list it in SAME_AS_ENGLISH`);
       }
     }
     for (const key of Object.keys(values)) {
@@ -118,15 +137,43 @@ function scanFrontend(sourceRoot, catalog, errors, references) {
   const source = catalog[SOURCE_LANGUAGE];
   const bases = pluralBases(Object.keys(source));
   const known = (key) => key in source || bases.has(key);
-  for (const file of walk(sourceRoot, (name) => /\.tsx?$/.test(name) && !name.endsWith('.d.ts'))) {
-    const text = fs.readFileSync(file, 'utf8');
-    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const namespaces = new Set(Object.keys(source).map((key) => key.split('.')[0]));
+  const keyPrefixes = Object.keys(source);
+  /** A literal shaped like a key of a catalog namespace: `nav.appointments`, but not `en.json` or `lucide.react`. */
+  const looksLikeKey = (text) => KEY_PATTERN.test(text) && namespaces.has(text.split('.')[0]);
+  const files = walk(sourceRoot, (name) => /\.tsx?$/.test(name) && !name.endsWith('.d.ts'));
+  // A type-checked program, so that t(`status.${value}`) is checked for every value the type of `value` allows.
+  const program = ts.createProgram(files, {
+    jsx: ts.JsxEmit.ReactJSX, strict: true, noEmit: true, skipLibCheck: true, resolveJsonModule: true,
+    module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, target: ts.ScriptTarget.ES2020,
+  });
+  const checker = program.getTypeChecker();
+  /** The string literals a template's expressions can take, or null when one is not a finite union of literals. */
+  const templateValues = (template) => {
+    let results = [template.head.text];
+    for (const span of template.templateSpans) {
+      const type = checker.getTypeAtLocation(span.expression);
+      const members = type.isUnion() ? type.types : [type];
+      if (!members.every((member) => member.isStringLiteral())) return null;
+      results = results.flatMap((prefix) => members.map((member) => prefix + member.value + span.literal.text));
+    }
+    return results;
+  };
+  for (const file of files) {
+    const sourceFile = program.getSourceFile(file);
     const where = (node) => `${path.relative(FRONT, file)}:${sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1}`;
     const report = (node, message) => {
       if (!exempt(sourceFile, node)) errors.push(`${where(node)}: ${message}`);
     };
     const visit = (node) => {
-      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) references.literals.add(node.text);
+      if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        references.literals.add(node.text);
+        // Keys kept in tables and passed to t() later (navigation, status labels, intents) are checked here.
+        if (looksLikeKey(node.text) && !known(node.text) && !keyPrefixes.some((key) => key.startsWith(`${node.text}.`))
+          && !(ts.isCallExpression(node.parent) && node.parent.arguments[0] === node)) {
+          report(node, `"${node.text}" looks like an interface key but is not in the catalog`);
+        }
+      }
       if (ts.isTemplateExpression(node) && KEY_PATTERN.test(`${node.head.text}x`) && node.head.text.endsWith('.')) {
         references.prefixes.add(node.head.text);
       }
@@ -144,6 +191,9 @@ function scanFrontend(sourceRoot, catalog, errors, references) {
           } else if (ts.isTemplateExpression(first)) {
             const prefix = first.head.text;
             if (!Object.keys(source).some((key) => key.startsWith(prefix))) report(first, `no catalog key starts with ${prefix}`);
+            for (const key of templateValues(first) ?? []) {
+              if (!known(key)) report(first, `t(\`${first.getText(sourceFile).slice(1, -1)}\`) can be ${key}, which is not in the interface catalog`);
+            }
           }
         } else if (/^(toast(\.\w+)?|window\.confirm|window\.alert|confirm|alert)$/.test(callee) && first
           && (ts.isStringLiteral(first) || ts.isNoSubstitutionTemplateLiteral(first)) && linguistic(first.text)) {
@@ -179,6 +229,9 @@ function scanFrontend(sourceRoot, catalog, errors, references) {
         }
         const keyProperty = [...props.entries()].find(([name, value]) => /^(labelKey|key|titleKey)$/.test(name) && KEY_PATTERN.test(value.text));
         for (const [name, value] of props) {
+          if (/^\w+Key$/.test(name) && KEY_PATTERN.test(value.text) && !known(value.text) && !looksLikeKey(value.text)) {
+            report(value, `${name}: ${value.text} is not in the interface catalog`);
+          }
           if (keyProperty && FALLBACK_SIBLINGS.includes(name)) {
             const key = keyProperty[1].text;
             if (!known(key)) report(keyProperty[1], `${key} is not in the interface catalog`);

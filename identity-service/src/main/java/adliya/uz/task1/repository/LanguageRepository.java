@@ -9,7 +9,7 @@ import java.util.Optional;
 
 @Repository
 public interface LanguageRepository extends JpaRepository<Language, Long> {
-    boolean existsByCodeIgnoreCase(String code);
+    Optional<Language> findByCodeIgnoreCase(String code);
 
     Optional<Language> findByCode(String code);
 

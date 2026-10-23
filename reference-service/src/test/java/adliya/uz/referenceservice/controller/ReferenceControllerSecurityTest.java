@@ -1,10 +1,12 @@
 package adliya.uz.referenceservice.controller;
 
+import adliya.uz.referenceservice.dto.InterfaceTranslationExport;
 import adliya.uz.referenceservice.security.JwtAuthenticationFilter;
 import adliya.uz.referenceservice.security.SecurityConfig;
 import adliya.uz.referenceservice.security.SimpleJwtService;
 import adliya.uz.referenceservice.service.InterfaceTranslationOverviewService;
 import adliya.uz.referenceservice.service.InterfaceTranslationService;
+import adliya.uz.referenceservice.service.InterfaceTranslationTransferService;
 import adliya.uz.referenceservice.service.TranslationKeyService;
 import adliya.uz.referenceservice.translation.InterfaceMachineTranslationService;
 import org.junit.jupiter.api.Test;
@@ -15,11 +17,14 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -27,6 +32,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(
@@ -56,6 +62,34 @@ class ReferenceControllerSecurityTest {
 
     @MockitoBean
     private InterfaceMachineTranslationService machineTranslationService;
+
+    @MockitoBean
+    private InterfaceTranslationTransferService transferService;
+
+    @Test
+    void translationBackupsAreNotPublic() throws Exception {
+        mockMvc.perform(get("/api/interface-translations/export"))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(get("/api/interface-translations/fr/export"))
+                .andExpect(status().is4xxClientError());
+        mockMvc.perform(post("/api/interface-translations/fr/import").contentType("application/json").content("{}"))
+                .andExpect(status().is4xxClientError());
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
+    @WithMockUser(authorities = "TRANSLATIONS_VIEW_COVERAGE")
+    void coverageViewersCanExportButNotImport() throws Exception {
+        when(transferService.export(eq("fr"), any())).thenReturn(new InterfaceTranslationExport(
+                InterfaceTranslationExport.FORMAT, "fr", "en", Instant.EPOCH, List.of()));
+
+        mockMvc.perform(get("/api/interface-translations/fr/export"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"interface-translations-fr.json\""));
+        mockMvc.perform(post("/api/interface-translations/fr/import").contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        verify(transferService, never()).importLanguage(any(), any(), anyBoolean(), any());
+    }
 
     @Test
     void translationOverviewIsNotPublic() throws Exception {

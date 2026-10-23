@@ -4,6 +4,7 @@ import {
   deleteLanguage,
   getInterfaceTranslationOverview,
   getLanguages,
+  importInterfaceTranslations,
   queueInterfaceMachineTranslation,
 } from '../../services/referenceService';
 import { translationOverviewRefetchInterval } from '../../utils/translationOverview';
@@ -32,6 +33,14 @@ export const useQueueMachineTranslation = () => {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (code: string) => queueInterfaceMachineTranslation(code),
+    onSuccess: () => client.invalidateQueries({ queryKey: languageKeys.coverage() }),
+  });
+};
+
+export const useImportTranslations = () => {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ code, backup }: { code: string; backup: unknown }) => importInterfaceTranslations(code, backup),
     onSuccess: () => client.invalidateQueries({ queryKey: languageKeys.coverage() }),
   });
 };

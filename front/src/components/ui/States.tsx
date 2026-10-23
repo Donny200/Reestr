@@ -62,3 +62,17 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
     />
   );
 }
+
+/**
+ * A note the server writes in English for operators (provider errors, skipped texts). The localized state is shown
+ * beside it; the note itself stays collapsed and marked as English.
+ */
+export function TechnicalDetails({ text }: { text: string }) {
+  const { t } = useI18n();
+  return (
+    <details className="mt-1 text-xs text-secondary">
+      <summary className="cursor-pointer">{t('state.technicalDetails')}</summary>
+      <p className="mt-1 wrap-anywhere" lang="en">{text}</p>
+    </details>
+  );
+}

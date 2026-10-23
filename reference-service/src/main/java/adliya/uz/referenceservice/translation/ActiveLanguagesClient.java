@@ -26,12 +26,25 @@ public class ActiveLanguagesClient {
         client = builder.clone().baseUrl("http://identity-service").build();
     }
 
+    /** For the background scan: a list at most five minutes old. */
     public Optional<Set<String>> activeLanguageCodes() {
         Snapshot current = snapshot;
-        Instant now = Instant.now();
-        if (current != null && current.fetchedAt().plus(CACHE_TTL).isAfter(now)) {
+        if (current != null && current.fetchedAt().plus(CACHE_TTL).isAfter(Instant.now())) {
             return Optional.of(current.codes());
         }
+        return fetch(current);
+    }
+
+    /**
+     * For the admin console: asks identity-service now, so a language added or removed a moment ago is shown (and can
+     * be queued) at once. Falls back to the last known list when identity-service cannot be reached.
+     */
+    public Optional<Set<String>> currentActiveLanguageCodes() {
+        return fetch(snapshot);
+    }
+
+    private Optional<Set<String>> fetch(Snapshot current) {
+        Instant now = Instant.now();
         try {
             Language[] languages = client.get().uri("/api/languages").retrieve().body(Language[].class);
             Set<String> codes = new LinkedHashSet<>();

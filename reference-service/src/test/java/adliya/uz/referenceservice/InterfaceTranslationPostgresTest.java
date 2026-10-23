@@ -2,12 +2,14 @@ package adliya.uz.referenceservice;
 
 import adliya.uz.referenceservice.catalog.InterfaceCatalog;
 import adliya.uz.referenceservice.catalog.InterfaceCatalogSynchronizer;
+import adliya.uz.referenceservice.dto.InterfaceTranslationExport;
 import adliya.uz.referenceservice.entity.InterfaceTranslationJob;
 import adliya.uz.referenceservice.entity.InterfaceTranslationJobStatus;
 import adliya.uz.referenceservice.repository.InterfaceTranslationJobRepository;
 import adliya.uz.referenceservice.security.SimpleJwtService;
 import adliya.uz.referenceservice.service.InterfaceCoverageService;
 import adliya.uz.referenceservice.service.InterfaceTranslationService;
+import adliya.uz.referenceservice.service.InterfaceTranslationTransferService;
 import adliya.uz.referenceservice.translation.ActiveLanguagesClient;
 import adliya.uz.referenceservice.translation.AzureInterfaceTranslator;
 import adliya.uz.referenceservice.translation.InterfaceMachineTranslationService;
@@ -82,6 +84,7 @@ class InterfaceTranslationPostgresTest {
     @Autowired InterfaceCoverageService coverage;
     @Autowired InterfaceMachineTranslationService machine;
     @Autowired InterfaceTranslationJobRepository jobs;
+    @Autowired InterfaceTranslationTransferService transfer;
     @Autowired JdbcTemplate jdbc;
     @Autowired MockMvc mvc;
     @MockitoBean ActiveLanguagesClient activeLanguages;
@@ -99,6 +102,7 @@ class InterfaceTranslationPostgresTest {
         reset(translator);
         when(translator.configured()).thenReturn(true);
         when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "ru", "uz", "fr")));
+        when(activeLanguages.currentActiveLanguageCodes()).thenAnswer(call -> activeLanguages.activeLanguageCodes());
     }
 
     @Test
@@ -150,8 +154,10 @@ class InterfaceTranslationPostgresTest {
     void variantsInheritTheirParentLanguage() {
         InterfaceCoverageService.LanguageCoverage frFr = coverage.coverage("fr-FR");
         assertThat(frFr.missingKeys()).isEmpty();
-        // Values inherited across scripts are served (Latin Uzbek beats English) but are not counted as translated.
+        // Latin Uzbek is neither served to nor counted for Cyrillic Uzbek.
         assertThat(coverage.coverage("uz-Cyrl").missingKeys()).hasSize(catalog.keys().size());
+        assertThat(translations.getTranslations("uz-Cyrl")).containsEntry("nav.home", catalog.source().get("nav.home"));
+        assertThat(translations.getTranslations("uz-Latn-UZ")).containsEntry("nav.home", catalog.values("uz").get("nav.home"));
         InterfaceCoverageService.LanguageCoverage enGb = coverage.coverage("en-GB");
         assertThat(enGb.englishBase()).isTrue();
         assertThat(enGb.missingKeys()).isEmpty();
@@ -346,6 +352,157 @@ class InterfaceTranslationPostgresTest {
                 .andExpect(jsonPath("$.status").value("PENDING"));
         mvc.perform(post("/api/interface-translations/de/machine-translation"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(authorities = {"TRANSLATIONS_VIEW_COVERAGE", "TRANSLATIONS_EDIT"})
+    void removedLanguageComesBackWithItsTranslationsAndOnlyNewTextsGoToTheProvider() throws Exception {
+        List<List<String>> sent = new ArrayList<>();
+        when(translator.translate(anyList(), eq("de"))).thenAnswer(call -> {
+            List<String> texts = call.getArgument(0);
+            sent.add(texts);
+            return texts.stream().map(text -> "DE " + text).toList();
+        });
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "de")));
+        machine.scan(now);
+        machine.runDue(now);
+        assertThat(sent).isNotEmpty();
+        sent.clear();
+
+        // Removed from the active languages (identity-service only deactivates it): nothing is queued or deleted.
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en")));
+        assertThat(machine.scan(now.plusSeconds(10))).isEmpty();
+        assertThat(value("de", "home.catalogTitle")).isEqualTo("DE " + catalog.source().get("home.catalogTitle"));
+
+        // Added again: served from the database at once, nothing to translate, the provider is not called.
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "de")));
+        mvc.perform(get("/api/interface-translations/de"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$['home.catalogTitle']").value("DE " + catalog.source().get("home.catalogTitle")));
+        assertThat(machine.scan(now.plusSeconds(20))).isEmpty();
+        assertThat(machine.runDue(now.plusSeconds(20)).claimed()).isZero();
+        // An explicit update of a complete language finishes without a provider call too.
+        machine.requeue("DE", now.plusSeconds(30));
+        assertThat(machine.runDue(now.plusSeconds(30)).done()).isEqualTo(1);
+        assertThat(sent).isEmpty();
+
+        // A label added since then is the only text sent.
+        jdbc.update("INSERT INTO translation_keys (translation_key, required, active, managed) VALUES ('test.newLabel', TRUE, TRUE, FALSE)");
+        translations.updateTranslations("en", Map.of("test.newLabel", "Brand new label"));
+        try {
+            assertThat(machine.scan(now.plusSeconds(40))).containsExactly("de");
+            machine.runDue(now.plusSeconds(40));
+            assertThat(sent).containsExactly(List.of("Brand new label"));
+            assertThat(value("de", "test.newLabel")).isEqualTo("DE Brand new label");
+        } finally {
+            jdbc.update("DELETE FROM translations WHERE translation_key_id = (SELECT id FROM translation_keys WHERE translation_key = 'test.newLabel')");
+            jdbc.update("DELETE FROM translation_keys WHERE translation_key = 'test.newLabel'");
+        }
+    }
+
+    @Test
+    void onlyMissingAndOutdatedMachineTextsAreSentToTheProvider() {
+        List<String> sent = new ArrayList<>();
+        when(translator.translate(anyList(), eq("sv"))).thenAnswer(call -> {
+            List<String> texts = call.getArgument(0);
+            sent.addAll(texts);
+            return texts.stream().map(text -> "SV " + text).toList();
+        });
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "sv")));
+        machine.scan(now);
+        machine.runDue(now);
+        assertThat(sent).hasSize(catalog.keys().size());
+        sent.clear();
+
+        // One machine value becomes outdated, one is lost, one is corrected by a person, the rest is current.
+        translations.updateTranslations("en", Map.of("home.catalogTitle", "Catalogue of services"));
+        translations.deleteTranslation("sv", "admin.welcome");
+        translations.updateTranslations("sv", Map.of("nav.home", "Hem"));
+
+        machine.requeue("sv", now.plusSeconds(10));
+        machine.runDue(now.plusSeconds(10));
+
+        assertThat(sent).containsExactlyInAnyOrder("Catalogue of services", catalog.source().get("admin.welcome"));
+        assertThat(value("sv", "nav.home")).isEqualTo("Hem");
+        assertThat(value("sv", "home.catalogTitle")).isEqualTo("SV Catalogue of services");
+    }
+
+    @Test
+    void retryWhileAWorkerHoldsTheJobDoesNotStartASecondRun() {
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "da")));
+        machine.scan(now);
+        InterfaceTranslationJob job = jobs.findByLanguageCode("da").orElseThrow();
+        job.setStatus(InterfaceTranslationJobStatus.RUNNING);
+        job.setAttempts(1);
+        job.setNextAttemptAt(now.plus(Duration.ofMinutes(10)));
+        jobs.save(job);
+
+        InterfaceTranslationJob answer = machine.requeue("da", now.plusSeconds(5));
+
+        assertThat(answer.getStatus()).isEqualTo(InterfaceTranslationJobStatus.RUNNING);
+        assertThat(machine.runDue(now.plusSeconds(5)).claimed()).isZero();
+        verify(translator, never()).translate(anyList(), anyString());
+    }
+
+    @Test
+    @WithMockUser(authorities = {"TRANSLATIONS_VIEW_COVERAGE", "TRANSLATIONS_EDIT"})
+    void exportAndImportRestoreTranslationsWithoutReplacingHumanEdits() throws Exception {
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en", "fi")));
+        when(translator.translate(anyList(), eq("fi"))).thenAnswer(call -> {
+            List<String> texts = call.getArgument(0);
+            return texts.stream().map(text -> "FI " + text).toList();
+        });
+        translations.updateTranslations("fi", Map.of("nav.home", "Etusivu"));
+        machine.scan(now);
+        machine.runDue(now);
+
+        String backup = mvc.perform(get("/api/interface-translations/FI/export"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("interface-translations-fi.json")))
+                .andExpect(jsonPath("$.format").value("reestr-interface-translations/1"))
+                .andExpect(jsonPath("$.languageCode").value("fi"))
+                .andExpect(jsonPath("$.entries[?(@.key == 'nav.home')].source").value("HUMAN"))
+                .andExpect(jsonPath("$.entries[?(@.key == 'admin.welcome')].source").value("MACHINE"))
+                .andReturn().getResponse().getContentAsString();
+
+        // Disaster: the rows are gone. Meanwhile a person writes a new home label.
+        jdbc.update("DELETE FROM translations WHERE language_code = 'fi'");
+        translations.updateTranslations("fi", Map.of("nav.home", "Kotisivu"));
+
+        mvc.perform(post("/api/interface-translations/fi/import").contentType("application/json").content(backup))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.created").value(catalog.keys().size() - 1))
+                .andExpect(jsonPath("$.keptHuman").value(1));
+        assertThat(value("fi", "admin.welcome")).isEqualTo("FI Welcome");
+        assertThat(source("fi", "admin.welcome")).isEqualTo("MACHINE");
+        assertThat(value("fi", "nav.home")).isEqualTo("Kotisivu");
+        assertThat(coverage.coverage("fi").missingKeys()).isEmpty();
+        // Restored machine values are current, so nothing is sent to the provider again.
+        reset(translator);
+        when(translator.configured()).thenReturn(true);
+        assertThat(machine.scan(now.plusSeconds(60))).isEmpty();
+        verify(translator, never()).translate(anyList(), anyString());
+
+        // Explicitly restoring the file's human values replaces the newer one; a file for another language is refused.
+        mvc.perform(post("/api/interface-translations/fi/import").param("replaceHuman", "true")
+                        .contentType("application/json").content(backup))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.updated").value(1));
+        assertThat(value("fi", "nav.home")).isEqualTo("Etusivu");
+        mvc.perform(post("/api/interface-translations/sv/import").contentType("application/json").content(backup))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/interface-translations/fi/import").contentType("application/json").content("{\"format\":\"other\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void exportBundleCoversRemovedLanguagesToo() {
+        translations.updateTranslations("it", Map.of("nav.home", "Home page"));
+        when(activeLanguages.activeLanguageCodes()).thenReturn(Optional.of(Set.of("en")));
+
+        var bundle = transfer.exportAll(now);
+
+        assertThat(bundle.languages()).extracting(InterfaceTranslationExport::languageCode).contains("en", "ru", "uz", "fr", "it");
     }
 
     private String value(String language, String key) {

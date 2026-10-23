@@ -28,8 +28,8 @@ public final class LanguageHierarchy {
 
     /**
      * The chain without ancestors written in another script: {@code uz-Cyrl} gives {@code uz-Cyrl} only, because
-     * {@code uz} is Latin. The dictionary still falls back across scripts (an Uzbek reader is better served by Latin
-     * Uzbek than by English), but such values do not count as translated in the coverage report.
+     * {@code uz} is Latin. Both the served dictionary and the coverage report use it, so a Cyrillic reader never gets
+     * Latin text: until its own translation exists, a key is served from the English base (and counted as missing).
      */
     public static List<String> sameScript(String languageCode) {
         Locale locale = Locale.forLanguageTag(languageCode);

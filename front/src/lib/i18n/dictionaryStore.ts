@@ -1,4 +1,4 @@
-import { readStored, writeStored } from '../storage';
+import { readStored, removeStored, writeStored } from '../storage';
 import type { Dictionary } from './translate';
 
 const PREFIX = 'reestr-i18n-dictionary:';
@@ -27,4 +27,8 @@ export function readDictionary(locale: string): Dictionary | null {
 
 export function writeDictionary(locale: string, values: Dictionary): void {
   writeStored(PREFIX + locale.toLowerCase(), JSON.stringify({ savedAt: Date.now(), values } satisfies StoredDictionary));
+}
+
+export function forgetDictionary(locale: string): void {
+  removeStored(PREFIX + locale.toLowerCase());
 }
