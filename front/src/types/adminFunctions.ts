@@ -1,7 +1,8 @@
 import type { AssigneeSummary, CatalogFunction, DocumentDetail, DocumentForm, ServiceInstructions, TranslatedText } from './api';
 import type { Translate } from '../utils/errors';
 
-export type FunctionStatus = 'DRAFT' | 'PENDING_REVIEW' | 'PUBLISHED' | 'DEACTIVATED';
+/** CHANGES_REQUESTED: a reviewer returned the submission with notes on specific fields; editable, not public. */
+export type FunctionStatus = 'DRAFT' | 'PENDING_REVIEW' | 'CHANGES_REQUESTED' | 'PUBLISHED' | 'DEACTIVATED';
 
 export type FunctionTransition = 'submit-for-review' | 'withdraw' | 'reject' | 'publish' | 'reactivate';
 
@@ -43,11 +44,78 @@ export interface AdminFunction extends Omit<CatalogFunction, 'organizationId' | 
   assignee?: AssigneeSummary | null;
   /** Background translation state; absent on public responses. */
   machineTranslation?: MachineTranslationSummary | null;
+  /** Staff-only digitalization, decentralization and risk profile; absent on public responses. */
+  profile?: ServiceProfile | null;
+  /** Editor step the author last saved from. */
+  editorStep?: WizardStep | null;
+  /** Review cycle (number of submissions) and open field-level corrections. */
+  review?: { cycle: number; openCorrections?: number | null } | null;
 }
 
-/** Content can be changed in place only for drafts and deactivated services; published ones go through a revision. */
+/**
+ * Content can be changed in place only for drafts, services returned with corrections and deactivated services;
+ * published ones go through a revision.
+ */
 export function isEditableStatus(status: FunctionStatus): boolean {
-  return status === 'DRAFT' || status === 'DEACTIVATED';
+  return status === 'DRAFT' || status === 'DEACTIVATED' || status === 'CHANGES_REQUESTED';
+}
+
+/** Steps of the service editor, in order; reviewers inspect a submission in the same sections. */
+export type WizardStep = 'general' | 'mechanism' | 'digitalization' | 'decentralization' | 'other';
+
+export type DeliveryChannel = 'IN_PERSON' | 'ONLINE' | 'ONLINE_AND_IN_PERSON';
+export type ProvisionLevel = 'NATIONAL' | 'REGIONAL' | 'DISTRICT';
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export const DELIVERY_CHANNELS: DeliveryChannel[] = ['IN_PERSON', 'ONLINE', 'ONLINE_AND_IN_PERSON'];
+export const PROVISION_LEVELS: ProvisionLevel[] = ['NATIONAL', 'REGIONAL', 'DISTRICT'];
+export const RISK_LEVELS: RiskLevel[] = ['LOW', 'MEDIUM', 'HIGH'];
+
+export interface ServiceProfile {
+  deliveryChannel?: DeliveryChannel | null;
+  onlineServiceUrl?: string | null;
+  provisionLevel?: ProvisionLevel | null;
+  riskLevel?: RiskLevel | null;
+  riskNotes?: string | null;
+}
+
+export type ReviewResolution = 'ADDRESSED' | 'REVIEWER_RESOLVED' | 'REVISION_DISCARDED';
+
+/** A reviewer's correction request on one field (`instructions.fee`, `documentDetails.<id>`) or a whole step (`section.other`). */
+export interface ReviewComment {
+  id: number;
+  functionId: number;
+  fieldPath: string;
+  section: WizardStep;
+  reviewCycle: number;
+  comment: string;
+  status: 'OPEN' | 'RESOLVED';
+  reviewerUserId?: number | null;
+  reviewer: string;
+  createdAt: string;
+  /** Open note whose field has changed since the review (it closes when the service is resubmitted). */
+  addressed: boolean;
+  resolution?: ReviewResolution | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  resolvedInCycle?: number | null;
+}
+
+export interface ReviewMark {
+  section: WizardStep;
+  reviewer: string;
+  reviewedAt: string;
+}
+
+export interface FunctionReview {
+  functionId: number;
+  status: FunctionStatus;
+  reviewCycle: number;
+  comments: ReviewComment[];
+  reviewedSections: ReviewMark[];
+  /** Open notes whose field is unchanged; resubmission waits for these. */
+  unaddressedFields: string[];
+  canResubmit: boolean;
 }
 
 export interface FunctionCategory {
@@ -76,10 +144,17 @@ export interface FunctionFormValues {
   fee: string;
   officialSourceUrl: string;
   documentDetails: DocumentDetailValues[];
+  deliveryChannel: DeliveryChannel | '';
+  onlineServiceUrl: string;
+  provisionLevel: ProvisionLevel | '';
+  riskLevel: RiskLevel | '';
+  riskNotes: string;
 }
 
 /** Editor values of one document detail (strings, as typed). */
 export interface DocumentDetailValues {
+  /** Stable id kept across edits; absent until the detail is first filled in. */
+  id?: string;
   document: string;
   form: DocumentForm | '';
   copies: string;
@@ -98,6 +173,8 @@ export interface CreateFunctionRequest {
   instructions: ServiceInstructions;
   officialSourceUrl: string;
   documentDetails: DocumentDetail[];
+  profile?: ServiceProfile;
+  editorStep?: WizardStep;
 }
 
 export interface UpdateFunctionRequest extends CreateFunctionRequest {
@@ -113,11 +190,12 @@ export interface FunctionAuditEntry {
   details: string;
 }
 
-export const FUNCTION_STATUSES: FunctionStatus[] = ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'DEACTIVATED'];
+export const FUNCTION_STATUSES: FunctionStatus[] = ['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'PUBLISHED', 'DEACTIVATED'];
 
 const statusLabels: Record<FunctionStatus, string> = {
   DRAFT: 'Draft',
   PENDING_REVIEW: 'Pending review',
+  CHANGES_REQUESTED: 'Changes requested',
   PUBLISHED: 'Published',
   DEACTIVATED: 'Deactivated',
 };

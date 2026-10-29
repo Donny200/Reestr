@@ -2,12 +2,20 @@ import { Controller, type UseFormReturn } from 'react-hook-form';
 import { Field } from '../ui/Field';
 import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
+import { Reviewable } from './ReviewFeedback';
+import { anchorOf } from '../../features/functions/wizard';
 import { useI18n } from '../../contexts/i18n';
 import { COPIES_MAX, NOTES_MAX, SOURCE_URL_MAX, VALIDITY_MAX } from '../../features/functions/schema';
 import type { DocumentDetailValues, FunctionFormValues } from '../../types/adminFunctions';
 import { DOCUMENT_FORMS, documentFormLabels, documentLines } from '../../utils/documentDetails';
 
 const EMPTY: Omit<DocumentDetailValues, 'document'> = { form: '', copies: '', validity: '', notes: '', formUrl: '' };
+
+/** Stable id of a new detail; review notes attach to it so they follow the item when the list is reordered. */
+function newDetailId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 /**
  * Optional structured details per line of "Required documents". Only what the organization actually knows is filled
@@ -29,11 +37,12 @@ export function DocumentDetailsEditor({ form, disabled }: { form: UseFormReturn<
         const indexOf = (line: string) => details.findIndex((detail) => detail.document === line);
         const change = (line: string, patch: Partial<DocumentDetailValues>) => {
           const next = details.filter((detail) => detail.document !== line);
-          next.push({ ...valueOf(line), ...patch, document: line });
+          const current = valueOf(line);
+          next.push({ ...current, ...patch, id: current.id ?? newDetailId(), document: line });
           field.onChange(next);
         };
         return (
-          <details className="rounded-control border border-line px-4 py-3" open={details.some((detail) => lines.includes(detail.document))}>
+          <details id={anchorOf('documentDetails')} className="scroll-mt-28 rounded-control border border-line px-4 py-3" open={details.some((detail) => lines.includes(detail.document))}>
             <summary className="cursor-pointer text-sm font-medium text-foreground">
               {t('documents.editorTitle', 'Details for each document (optional)')}
             </summary>
@@ -47,8 +56,8 @@ export function DocumentDetailsEditor({ form, disabled }: { form: UseFormReturn<
                 {lines.map((line) => {
                   const value = valueOf(line);
                   const error = errors?.[indexOf(line)];
-                  return (
-                    <li key={line} className="space-y-3 border-t border-line pt-4 first:border-t-0 first:pt-0">
+                  const item = (
+                    <>
                       <p className="font-medium text-foreground wrap-anywhere">{line}</p>
                       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_8rem]">
                         <Field label={t('documents.form', 'Original or copy')}>
@@ -90,6 +99,15 @@ export function DocumentDetailsEditor({ form, disabled }: { form: UseFormReturn<
                           )}
                         </Field>
                       </div>
+                    </>
+                  );
+                  return (
+                    <li key={line} className="space-y-3 border-t border-line pt-4 first:border-t-0 first:pt-0">
+                      {value.id ? (
+                        <Reviewable path={`documentDetails.${value.id}`} label={t('review.documentItem', { name: line })} className="space-y-3">
+                          {item}
+                        </Reviewable>
+                      ) : item}
                     </li>
                   );
                 })}

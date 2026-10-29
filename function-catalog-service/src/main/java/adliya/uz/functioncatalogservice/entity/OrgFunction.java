@@ -75,11 +75,30 @@ public class OrgFunction {
     @Column(length = 150)
     private String assignedUserName;
     private Instant assignedAt;
+    /** Staff-only service profile (digitalization, decentralization and risk); null until the organization fills it in. */
+    @Enumerated(EnumType.STRING) @Column(length = 30)
+    private DeliveryChannel deliveryChannel;
+    @Column(length = 500)
+    private String onlineServiceUrl;
+    @Enumerated(EnumType.STRING) @Column(length = 30)
+    private ProvisionLevel provisionLevel;
+    @Enumerated(EnumType.STRING) @Column(length = 20)
+    private RiskLevel riskLevel;
+    @Column(length = 2000)
+    private String riskNotes;
+    /** Editor step the author last saved from, so a draft resumes where it was left; not content, not audited. */
+    @Column(length = 30)
+    private String editorStep;
+    /** Number of submissions for review; review notes and section marks carry the cycle they belong to. */
+    @Column(nullable = false) @Builder.Default
+    private int reviewCycle = 0;
 
     public Boolean getActive() { return status == FunctionStatus.PUBLISHED; }
     public boolean isRevision() { return revisionOfId != null; }
-    /** Content may be changed in place only while the card is not public and not under review. */
-    public boolean isEditable() { return status == FunctionStatus.DRAFT || status == FunctionStatus.DEACTIVATED; }
+    /** Content may be changed in place only while the card is not public and not under review (incl. after a request for changes). */
+    public boolean isEditable() {
+        return status == FunctionStatus.DRAFT || status == FunctionStatus.DEACTIVATED || status == FunctionStatus.CHANGES_REQUESTED;
+    }
 
     /** Copies every editorial field (content, translations, organization, category, verification) but not identity or workflow state. */
     public void copyContentFrom(OrgFunction source) {
@@ -95,6 +114,11 @@ public class OrgFunction {
             field.set(this, field.get(source));
         }
         officialSourceUrl = source.officialSourceUrl;
+        deliveryChannel = source.deliveryChannel;
+        onlineServiceUrl = source.onlineServiceUrl;
+        provisionLevel = source.provisionLevel;
+        riskLevel = source.riskLevel;
+        riskNotes = source.riskNotes;
         documentDetails = source.documentDetails == null || source.documentDetails.isEmpty() ? null : new ArrayList<>(source.documentDetails);
         Map<String, Map<String, TranslatedText>> instructions = new LinkedHashMap<>();
         if (source.instructionTranslations != null) {

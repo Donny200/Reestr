@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { AlertTriangleIcon, ArchiveIcon, BellIcon, FileCheck2Icon, FilePenLineIcon, FileSearchIcon, FlagIcon, InfoIcon, LanguagesIcon, LinkIcon, ShieldAlertIcon, UserCheckIcon } from 'lucide-react';
+import { AlertTriangleIcon, ArchiveIcon, BellIcon, FileCheck2Icon, FilePenLineIcon, FileSearchIcon, FileWarningIcon, FlagIcon, InfoIcon, LanguagesIcon, LinkIcon, ShieldAlertIcon, UserCheckIcon } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
@@ -43,11 +43,12 @@ import { usePatchSearchParams } from '../../hooks/usePatchSearchParams';
 const statusIcons: Record<FunctionStatus, ComponentType<{ className?: string }>> = {
   PUBLISHED: FileCheck2Icon,
   PENDING_REVIEW: FileSearchIcon,
+  CHANGES_REQUESTED: FileWarningIcon,
   DRAFT: FilePenLineIcon,
   DEACTIVATED: ArchiveIcon,
 };
 
-const SNAPSHOT_ORDER: FunctionStatus[] = ['PUBLISHED', 'PENDING_REVIEW', 'DRAFT', 'DEACTIVATED'];
+const SNAPSHOT_ORDER: FunctionStatus[] = ['PUBLISHED', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'DRAFT', 'DEACTIVATED'];
 
 const issueIcons: Record<QualityIssueType, ComponentType<{ className?: string }>> = {
   VERIFICATION_OVERDUE: ShieldAlertIcon,

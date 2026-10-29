@@ -9,6 +9,7 @@ import adliya.uz.functioncatalogservice.service.PublicChangeService;
 import adliya.uz.functioncatalogservice.dto.UpdateOrgFunctionRequest;
 import adliya.uz.functioncatalogservice.dto.UpdateRequirementsRequest;
 import adliya.uz.functioncatalogservice.entity.OrgFunction;
+import adliya.uz.functioncatalogservice.service.FunctionReviewService;
 import adliya.uz.functioncatalogservice.service.OrgFunctionService;
 import adliya.uz.functioncatalogservice.service.PublicSiteUrl;
 import adliya.uz.functioncatalogservice.service.ServiceGuideService;
@@ -30,6 +31,7 @@ public class OrgFunctionController {
     private final PublicChangeService publicChanges;
     private final MachineTranslationQueue translations;
     private final ServiceGuideService guides;
+    private final FunctionReviewService reviews;
 
     @org.springframework.beans.factory.annotation.Value("${catalog.public-base-url:}")
     private String publicBaseUrl;
@@ -97,9 +99,11 @@ public class OrgFunctionController {
     private List<OrgFunctionResponse> staffView(List<OrgFunction> functions) {
         Map<Long, OrgFunction> revisions = orgFunctionService.draftRevisionsOf(functions);
         Map<Long, MachineTranslationSummary> summaries = translations.summaries(functions);
+        Map<Long, Long> corrections = reviews.openCounts(functions.stream().map(OrgFunction::getId).toList());
         return functions.stream()
                 .map(function -> OrgFunctionResponse.from(function, revisions.get(function.getId()))
-                        .withMachineTranslation(summaries.get(function.getId())))
+                        .withMachineTranslation(summaries.get(function.getId()))
+                        .withOpenCorrections(corrections.getOrDefault(function.getId(), 0L)))
                 .toList();
     }
 
@@ -108,7 +112,8 @@ public class OrgFunctionController {
     public OrgFunctionResponse getForAdmin(@PathVariable Long id) {
         OrgFunction function = orgFunctionService.getForAdmin(id);
         return OrgFunctionResponse.from(function, orgFunctionService.draftRevisionsOf(List.of(function)).get(function.getId()))
-                .withMachineTranslation(translations.summary(function));
+                .withMachineTranslation(translations.summary(function))
+                .withOpenCorrections(reviews.openCounts(List.of(function.getId())).getOrDefault(function.getId(), 0L));
     }
 
     /** Opens (or returns) the draft revision through which a published card is edited; the public version stays as is. */

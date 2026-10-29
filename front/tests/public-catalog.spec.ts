@@ -55,13 +55,14 @@ test('structured instructions show provided facts, mark unknown ones and keep le
   await expect(main.getByRole('heading', { name: 'Step-by-step procedure' })).toBeVisible();
   await expect(main.getByRole('listitem').filter({ hasText: 'Submit it at the service centre' })).toBeVisible();
   await expect(main.getByRole('checkbox', { name: 'Photo 3x4' })).toBeVisible();
-  await expect(main.getByText('0.5 BHM')).toBeVisible();
-  await expect(main.getByText('Not specified')).toHaveCount(2);
+  // The print-only visit sheet repeats the facts; only what is on screen is checked.
+  await expect(main.getByText('0.5 BHM').filter({ visible: true })).toBeVisible();
+  await expect(main.getByText('Not specified').filter({ visible: true })).toHaveCount(2);
   await expect(main.getByText('Not provided yet. Confirm with the organization before you apply.')).toBeVisible();
   await expect(main.getByRole('heading', { name: 'Additional requirements' })).toBeVisible();
   await expect(main.getByText('Reviewed by the organization on', { exact: false })).toBeVisible();
   await expect(main.getByRole('link', { name: /Source link/ })).toHaveAttribute('href', 'https://gov.example/services/1');
-  await expect(main.getByText('Tashkent, Sayilgoh street 5')).toBeVisible();
+  await expect(main.getByText('Tashkent, Sayilgoh street 5').filter({ visible: true })).toBeVisible();
 
   await openPublic(page, '/functions/2');
   await expect(main.getByRole('heading', { name: 'Requirements' })).toBeVisible();
@@ -74,7 +75,7 @@ test('machine translated instructions are labelled for visitors', async ({ page 
   await setup(page, { anonymous: true, records: [structuredCard()] });
   await page.addInitScript(() => window.localStorage.setItem('reestr-task-locale', 'ru'));
   await openPublic(page, '/functions/1');
-  await expect(page.getByRole('main').getByText('Подать в центр услуг')).toBeVisible();
+  await expect(page.getByRole('main').getByText('Подать в центр услуг').filter({ visible: true })).toBeVisible();
   await expect(page.getByRole('main').getByText('Часть текста на этой странице переведена автоматически', { exact: false })).toBeVisible();
 });
 
@@ -124,43 +125,44 @@ test('share uses the Web Share API when available and falls back to copying the 
   await expect.poll(() => page.evaluate(() => (window as unknown as { shared?: ShareData }).shared?.url)).toBe('http://127.0.0.1:5183/functions/1');
 });
 
-test('print media hides navigation and actions but keeps the checklist', async ({ page }) => {
+test('print media replaces the page with the visit preparation sheet', async ({ page }) => {
   await setup(page, { anonymous: true, records: [structuredCard()] });
   await openPublic(page, '/functions/1');
+  await expect(page.getByRole('button', { name: 'Print visit sheet' })).toBeVisible();
   await page.emulateMedia({ media: 'print' });
   await expect(page.getByRole('banner')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Print checklist' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Print visit sheet' })).toBeHidden();
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeHidden();
-  await expect(page.getByText('Printed on', { exact: false })).toBeVisible();
-  await expect(page.getByRole('checkbox', { name: 'Passport' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Passport' })).toBeHidden();
+  const sheet = page.getByRole('article', { name: 'Visit preparation sheet' });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByText('Printed on', { exact: false })).toBeVisible();
+  await expect(sheet.getByText('Passport', { exact: true })).toBeVisible();
 });
 
-test('guided finder shows only published services and recovers from an empty result', async ({ page }) => {
+test('service finder shows only published services and recovers from an empty result', async ({ page }) => {
   const fixture = await setup(page, {
     anonymous: true,
     records: [card(1, 'PUBLISHED'), card(2, 'PUBLISHED'), { ...card(3, 'PUBLISHED'), categoryId: null, category: null }, card(4, 'DRAFT')],
   });
   await openPublic(page, '/finder');
   const main = page.getByRole('main');
-  await expect(main.getByRole('heading', { name: 'What is your situation?' })).toBeVisible();
-  await main.getByRole('radio', { name: 'Legal' }).check();
-  await main.getByRole('button', { name: 'Next' }).click();
-  await expect(main.getByRole('heading', { name: 'What do you want to do?' })).toBeFocused();
-  await main.getByLabel('Describe your goal in a few words (optional)').fill('passport renewal abroad');
-  await main.getByRole('button', { name: 'Next' }).click();
-  await main.getByRole('button', { name: 'Show services' }).click();
-  await expect(main.getByText('No published services match these answers')).toBeVisible();
-  await main.getByRole('button', { name: 'Clear keywords' }).click();
+  await expect(page.getByRole('heading', { name: 'Find the service you need' })).toBeVisible();
+  await main.getByRole('button', { name: /Show all services/ }).click();
   await expect(main.getByRole('link', { name: /Service 1/ })).toBeVisible();
   await expect(main.getByRole('link', { name: /Service 2/ })).toBeVisible();
-  await expect(main.getByRole('link', { name: /Service 3/ })).toHaveCount(0);
-  await expect(main.getByRole('link', { name: /Service 4/ })).toHaveCount(0);
-  await main.getByRole('button', { name: 'Start over' }).click();
-  await main.getByRole('button', { name: 'Next' }).click();
-  await main.getByLabel('Describe your goal in a few words (optional)').fill('Description 3');
-  await main.getByRole('button', { name: 'Next' }).click();
-  await main.getByRole('button', { name: 'Show services' }).click();
   await expect(main.getByRole('link', { name: /Service 3/ })).toBeVisible();
+  await expect(main.getByRole('link', { name: /Service 4/ })).toHaveCount(0);
+
+  const search = main.getByRole('searchbox', { name: 'What do you want to do?' });
+  await search.fill('passport renewal abroad');
+  await expect(main.getByText('No published service matches this')).toBeVisible();
+  await main.getByRole('button', { name: 'Clear search' }).last().click();
+  await expect(search).toHaveValue('');
+  await search.fill('Description 3');
+  await expect(main.getByRole('link', { name: /Service 3/ })).toBeVisible();
+  await main.getByRole('button', { name: 'Start over' }).click();
+  await expect(search).toHaveValue('');
   expect(writes(fixture.requests)).toEqual([]);
 });
 

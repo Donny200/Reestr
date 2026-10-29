@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/auth';
 import {
+  addReviewComment,
   assignFunction,
   backfillTranslations,
   createFunction,
@@ -14,9 +15,13 @@ import {
   getAdminFunctions,
   getFunctionAudit,
   getFunctionCategories,
+  getFunctionReview,
   getTranslationCapabilities,
   requeueTranslation,
+  requestFunctionChanges,
+  resolveReviewComment,
   saveFunctionTranslation,
+  setReviewSection,
   transitionFunction,
   translateFunction,
   updateFunction,
@@ -30,8 +35,10 @@ import type {
   CreateFunctionRequest,
   FunctionCategory,
   FunctionOrganization,
+  FunctionReview,
   FunctionTransition,
   UpdateFunctionRequest,
+  WizardStep,
 } from '../../types/adminFunctions';
 import type { FunctionQuery } from '../../types/api';
 import type { AssignmentState } from '../../types/analytics';
@@ -109,6 +116,7 @@ async function storeFunction(client: QueryClient, record: AdminFunction) {
     ...related.flatMap((id) => [
       client.invalidateQueries({ queryKey: functionKeys.detail(id) }),
       client.invalidateQueries({ queryKey: functionKeys.audit(id) }),
+      client.invalidateQueries({ queryKey: functionKeys.review(id) }),
     ]),
   ]);
 }
@@ -191,3 +199,33 @@ export function useBackfillTranslations() {
     onSuccess: () => client.invalidateQueries({ queryKey: functionKeys.all }),
   });
 }
+
+export const useFunctionReview = (id: number, enabled = true) =>
+  useQuery({ queryKey: functionKeys.review(id), queryFn: () => getFunctionReview(id), enabled: enabled && Number.isFinite(id) });
+
+/** Review note and checklist changes return the whole review; the card's open-correction count and history change too. */
+function useReviewMutation<TVariables>(id: number, mutationFn: (variables: TVariables) => Promise<FunctionReview>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: async (review) => {
+      client.setQueryData(functionKeys.review(id), review);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: functionKeys.detail(id) }),
+        client.invalidateQueries({ queryKey: functionKeys.audit(id) }),
+        client.invalidateQueries({ queryKey: functionKeys.admin() }),
+      ]);
+    },
+  });
+}
+
+export const useAddReviewComment = (id: number) =>
+  useReviewMutation(id, ({ fieldPath, comment }: { fieldPath: string; comment: string }) => addReviewComment(id, fieldPath, comment));
+
+export const useResolveReviewComment = (id: number) =>
+  useReviewMutation(id, (commentId: number) => resolveReviewComment(id, commentId));
+
+export const useSetReviewSection = (id: number) =>
+  useReviewMutation(id, ({ section, reviewed }: { section: WizardStep; reviewed: boolean }) => setReviewSection(id, section, reviewed));
+
+export const useRequestFunctionChanges = (id: number) => useFunctionMutation((summary: string) => requestFunctionChanges(id, summary));

@@ -17,15 +17,26 @@ public record CreateOrgFunctionRequest(
         @Valid ServiceInstructions instructions,
         @Size(max = 500) @Pattern(regexp = OfficialSourceUrl.PATTERN, message = OfficialSourceUrl.MESSAGE) String officialSourceUrl,
         /** Optional structured details of required documents; each entry names a line of instructions.requiredDocuments. */
-        @Size(max = DocumentDetail.MAX_ITEMS) List<@Valid DocumentDetail> documentDetails
+        @Size(max = DocumentDetail.MAX_ITEMS) List<@Valid DocumentDetail> documentDetails,
+        /** Staff-only digitalization/decentralization/risk profile; null keeps the current one. */
+        @Valid ServiceProfile profile,
+        /** Editor step the author saved from (general, mechanism, digitalization, decentralization, other). */
+        @Pattern(regexp = EDITOR_STEP_PATTERN) String editorStep
 ) {
+    public static final String EDITOR_STEP_PATTERN = "general|mechanism|digitalization|decentralization|other";
+
+    public CreateOrgFunctionRequest(String name, String description, Long organizationId, String requirements, String category, Long categoryId,
+                                    String sourceLanguage, ServiceInstructions instructions, String officialSourceUrl, List<DocumentDetail> documentDetails) {
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl,
+                documentDetails, null, null);
+    }
     public CreateOrgFunctionRequest(String name, String description, Long organizationId, String requirements, String category,
                                     Long categoryId, String sourceLanguage, ServiceInstructions instructions, String officialSourceUrl) {
-        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl, null);
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl, null, null, null);
     }
     public CreateOrgFunctionRequest(String name, String description, Long organizationId, String requirements,
                                     String category, Long categoryId, String sourceLanguage) {
-        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, null, null, null);
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, null, null, null, null, null);
     }
     public CreateOrgFunctionRequest(String name, String description, Long organizationId, String requirements, String category, Long categoryId) {
         this(name, description, organizationId, requirements, category, categoryId, null);

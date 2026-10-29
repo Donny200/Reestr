@@ -66,6 +66,7 @@ public class OrganizationReportService {
             Map.entry("analytics.event.PRINT", "Prints"),
             Map.entry("fnAdmin.status.DRAFT", "Draft"),
             Map.entry("fnAdmin.status.PENDING_REVIEW", "Pending review"),
+            Map.entry("fnAdmin.status.CHANGES_REQUESTED", "Changes requested"),
             Map.entry("fnAdmin.status.PUBLISHED", "Published"),
             Map.entry("fnAdmin.status.DEACTIVATED", "Deactivated"),
             Map.entry("quality.issue.VERIFICATION_OVERDUE", "Verification overdue"),
@@ -208,8 +209,8 @@ public class OrganizationReportService {
         List<Column> stateColumns = List.of(Column.text(labels.get("analytics.metric", "Metric"), 3f),
                 Column.integer(labels.get("export.col.value", "Value")));
         List<List<Object>> state = new ArrayList<>();
-        for (FunctionStatus status : List.of(FunctionStatus.PUBLISHED, FunctionStatus.PENDING_REVIEW, FunctionStatus.DRAFT,
-                FunctionStatus.DEACTIVATED)) {
+        for (FunctionStatus status : List.of(FunctionStatus.PUBLISHED, FunctionStatus.PENDING_REVIEW,
+                FunctionStatus.CHANGES_REQUESTED, FunctionStatus.DRAFT, FunctionStatus.DEACTIVATED)) {
             state.add(row(labels.get("export.metric.cards", "Service cards") + ": " + functionStatus(labels, status),
                     summary.services().getOrDefault(status, 0L)));
         }

@@ -6,6 +6,7 @@ import adliya.uz.functioncatalogservice.dto.FunctionTranslationsRequest;
 import adliya.uz.functioncatalogservice.dto.LanguageTranslationRequest;
 import adliya.uz.functioncatalogservice.dto.OfficialSourceUrl;
 import adliya.uz.functioncatalogservice.dto.ServiceInstructions;
+import adliya.uz.functioncatalogservice.dto.ServiceProfile;
 import adliya.uz.functioncatalogservice.dto.UpdateOrgFunctionRequest;
 import adliya.uz.functioncatalogservice.entity.AuditAction;
 import adliya.uz.functioncatalogservice.entity.DocumentDetail;
@@ -40,6 +41,7 @@ import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import static adliya.uz.functioncatalogservice.entity.FunctionStatus.CHANGES_REQUESTED;
 import static adliya.uz.functioncatalogservice.entity.FunctionStatus.DEACTIVATED;
 import static adliya.uz.functioncatalogservice.entity.FunctionStatus.DRAFT;
 import static adliya.uz.functioncatalogservice.entity.FunctionStatus.PENDING_REVIEW;
@@ -67,6 +69,7 @@ public class OrgFunctionService {
     private final ReportReviewService reports;
     private final PublicChangeService publicChanges;
     private final MachineTranslationQueue translations;
+    private final FunctionReviewService review;
 
     public List<OrgFunction> getAll() {
         return orgFunctionRepository.findAllByStatus(PUBLISHED);
@@ -155,9 +158,11 @@ public class OrgFunctionService {
                         : request.sourceLanguage().toLowerCase(Locale.ROOT))
                 .officialSourceUrl(OfficialSourceUrl.normalize(request.officialSourceUrl()))
                 .status(DRAFT)
+                .editorStep(request.editorStep())
                 .build();
         applyInstructions(function, request.instructions());
         applyDocumentDetails(function, request.documentDetails());
+        applyProfile(function, request.profile());
         return function;
     }
 
@@ -182,6 +187,7 @@ public class OrgFunctionService {
         revision.copyContentFrom(published);
         revision.setStatus(DRAFT);
         revision.setRevisionOfId(published.getId());
+        revision.setReviewCycle(published.getReviewCycle());
         orgFunctionRepository.saveAndFlush(revision);
         audit.revision(published, revision, AuditAction.REVISION_CREATE,
                 "Draft revision #" + revision.getId() + " opened for published card #" + published.getId() + "; public content unchanged");
@@ -195,10 +201,10 @@ public class OrgFunctionService {
         OrgFunction revision = orgFunctionRepository.findByRevisionOfId(published.getId())
                 .orElseThrow(() -> new NoSuchElementException("Card " + publishedId + " has no draft revision"));
         access.requireOrganization(revision.getOrganizationId());
-        if (revision.getStatus() != DRAFT) {
+        if (revision.getStatus() != DRAFT && revision.getStatus() != CHANGES_REQUESTED) {
             throw new WorkflowConflictException("Withdraw the revision from review before discarding it");
         }
-        removeRevisionRow(revision, published);
+        removeRevisionRow(revision, published, true);
         audit.function(published, AuditAction.REVISION_DISCARD,
                 "Draft revision #" + revision.getId() + " discarded; public content unchanged");
     }
@@ -243,6 +249,10 @@ public class OrgFunctionService {
                 function.setOfficialSourceUrl(officialSourceUrl);
                 changed.add("officialSourceUrl");
             }
+        }
+        changed.addAll(applyProfile(function, request.profile()));
+        if (request.editorStep() != null) {
+            function.setEditorStep(request.editorStep());
         }
         if (request.categoryId() != null || request.category() != null) {
             changeCategory(function, categories.resolve(request.categoryId(), request.category()));
@@ -344,10 +354,14 @@ public class OrgFunctionService {
         return orgFunctionRepository.saveAndFlush(function);
     }
 
-    /** Drafts and deactivated cards enter review directly; nothing becomes public without a reviewer publishing it. */
+    /**
+     * Drafts, deactivated cards and cards returned with corrections enter review directly; nothing becomes public without
+     * a reviewer publishing it. Every flagged field must have changed since the review (the notes are then closed as
+     * addressed and kept as history), and each submission starts a new review cycle.
+     */
     @Transactional
     public OrgFunction submitForReview(Long id) {
-        return transition(id, EnumSet.of(DRAFT, DEACTIVATED), PENDING_REVIEW, AuditAction.SUBMIT_REVIEW, null);
+        return transition(id, EnumSet.of(DRAFT, DEACTIVATED, CHANGES_REQUESTED), PENDING_REVIEW, AuditAction.SUBMIT_REVIEW, null);
     }
 
     /** The submitting side takes a card back from the review queue without a reviewer. */
@@ -370,11 +384,12 @@ public class OrgFunctionService {
      */
     @Transactional
     public OrgFunction publish(Long id) {
-        OrgFunction function = scoped(id);
+        OrgFunction function = locked(id);
         if (function.getStatus() != PENDING_REVIEW) {
             throw new WorkflowConflictException(
                     "Expected PENDING_REVIEW, found " + function.getStatus() + "; cannot transition to PUBLISHED");
         }
+        review.requireNoOpenCorrections(function);
         if (!function.isRevision()) {
             FunctionStatus previousPublicStatus = previousPublicStatus(function);
             OrgFunction published = transition(id, EnumSet.of(PENDING_REVIEW), PUBLISHED, AuditAction.PUBLISH, null);
@@ -392,11 +407,12 @@ public class OrgFunctionService {
         FunctionStatus previousStatus = published.getStatus();
         published.copyContentFrom(function);
         published.setStatus(PUBLISHED);
+        published.setReviewCycle(function.getReviewCycle());
         orgFunctionRepository.saveAndFlush(published);
         if (!Objects.equals(previousOrganization, published.getOrganizationId())) {
             reports.reassignFunctionReports(published.getId(), published.getOrganizationId());
         }
-        removeRevisionRow(function, published);
+        removeRevisionRow(function, published, false);
         audit.function(published, AuditAction.PUBLISH,
                 "Revision #" + function.getId() + " approved: public content replaced (" + previousStatus + " -> PUBLISHED)");
         publicChanges.recordPublication(published, previousStatus, java.time.Instant.now());
@@ -425,7 +441,7 @@ public class OrgFunctionService {
     }
 
     private OrgFunction transition(Long id, Set<FunctionStatus> allowed, FunctionStatus to, AuditAction action, String reason) {
-        OrgFunction function = scoped(id);
+        OrgFunction function = locked(id);
         FunctionStatus from = function.getStatus();
         if (!allowed.contains(from)) {
             throw new WorkflowConflictException(
@@ -434,9 +450,21 @@ public class OrgFunctionService {
         if (to == PENDING_REVIEW || to == PUBLISHED) {
             organizations.requireExisting(function.getOrganizationId());
         }
+        String details = reason == null ? from + " -> " + to : reason;
+        if (to == PENDING_REVIEW) {
+            Map<String, String> missing = ServiceProfile.submissionErrors(function);
+            if (!missing.isEmpty()) {
+                throw new InvalidFieldException(missing);
+            }
+            List<String> addressed = review.addressOnSubmit(function);
+            function.setReviewCycle(function.getReviewCycle() + 1);
+            if (!addressed.isEmpty()) {
+                details += "; review cycle " + function.getReviewCycle() + "; corrections addressed: " + String.join(", ", addressed);
+            }
+        }
         function.setStatus(to);
         orgFunctionRepository.saveAndFlush(function);
-        audit.function(function, action, reason == null ? from + " -> " + to : reason);
+        audit.function(function, action, details);
         if (to == DRAFT) {
             translations.resume(TranslationTarget.FUNCTION, function.getId());
         }
@@ -444,7 +472,13 @@ public class OrgFunctionService {
     }
 
     /** Moves the revision's history onto the published card and deletes the revision row (same transaction). */
-    private void removeRevisionRow(OrgFunction revision, OrgFunction published) {
+    private void removeRevisionRow(OrgFunction revision, OrgFunction published, boolean discarded) {
+        // Review notes and marks keep their history on the published card; its cycle counter stays monotonic.
+        review.moveToPublished(revision, published, discarded);
+        if (published.getReviewCycle() < revision.getReviewCycle()) {
+            published.setReviewCycle(revision.getReviewCycle());
+            orgFunctionRepository.saveAndFlush(published);
+        }
         auditLogs.flush();
         auditLogs.copyFunctionLinks(revision.getId(), published.getId());
         auditLogs.deleteFunctionLinks(revision.getId());
@@ -482,6 +516,48 @@ public class OrgFunctionService {
         return changed;
     }
 
+    /** Replaces the staff-only profile when one is sent; returns the changed field paths (profile.*). */
+    private List<String> applyProfile(OrgFunction function, ServiceProfile profile) {
+        List<String> changed = new ArrayList<>();
+        if (profile == null) {
+            return changed;
+        }
+        String onlineServiceUrl = normalizedLink("profile.onlineServiceUrl", profile.onlineServiceUrl());
+        String riskNotes = profile.riskNotes() == null || profile.riskNotes().isBlank() ? null : profile.riskNotes().strip();
+        if (!Objects.equals(profile.deliveryChannel(), function.getDeliveryChannel())) {
+            function.setDeliveryChannel(profile.deliveryChannel());
+            changed.add("profile.deliveryChannel");
+        }
+        if (!Objects.equals(onlineServiceUrl, function.getOnlineServiceUrl())) {
+            function.setOnlineServiceUrl(onlineServiceUrl);
+            changed.add("profile.onlineServiceUrl");
+        }
+        if (!Objects.equals(profile.provisionLevel(), function.getProvisionLevel())) {
+            function.setProvisionLevel(profile.provisionLevel());
+            changed.add("profile.provisionLevel");
+        }
+        if (!Objects.equals(profile.riskLevel(), function.getRiskLevel())) {
+            function.setRiskLevel(profile.riskLevel());
+            changed.add("profile.riskLevel");
+        }
+        if (!Objects.equals(riskNotes, function.getRiskNotes())) {
+            function.setRiskNotes(riskNotes);
+            changed.add("profile.riskNotes");
+        }
+        return changed;
+    }
+
+    private static String normalizedLink(String field, String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.strip();
+        if (!OfficialSourceUrl.isWebLink(value)) {
+            throw new InvalidFieldException(field, OfficialSourceUrl.MESSAGE);
+        }
+        return value;
+    }
+
     /**
      * Replaces the structured document details ({@code requested} not null) or, when only the document list changed,
      * drops details whose line no longer exists. Each detail must name a current line of "Required documents"; empty
@@ -496,6 +572,7 @@ public class OrgFunctionService {
             function.documentDetailsOrEmpty().stream().filter(detail -> lines.contains(detail.document())).forEach(next::add);
         } else {
             Set<String> seen = new java.util.HashSet<>();
+            Set<String> ids = new java.util.HashSet<>();
             for (DocumentDetail raw : requested) {
                 if (raw == null) {
                     continue;
@@ -508,8 +585,11 @@ public class OrgFunctionService {
                 if (!seen.add(detail.document())) {
                     throw new InvalidFieldException("documentDetails", "A document has more than one set of details: " + abbreviate(detail.document()));
                 }
+                if (detail.id() != null && !ids.add(detail.id())) {
+                    throw new InvalidFieldException("documentDetails", "Two document details have the same id");
+                }
                 if (!detail.empty()) {
-                    next.add(detail);
+                    next.add(detail.id() != null ? detail : detail.withId(existingDetailId(function, detail.document())));
                 }
             }
             // Keep the order of the document list.
@@ -521,6 +601,15 @@ public class OrgFunctionService {
         }
         function.setDocumentDetails(stored);
         return true;
+    }
+
+    /** Keeps the stable id of the stored detail of the same document line, or issues a new one. */
+    private static String existingDetailId(OrgFunction function, String document) {
+        return function.documentDetailsOrEmpty().stream()
+                .filter(stored -> stored.document().equals(document) && stored.id() != null)
+                .map(DocumentDetail::id)
+                .findFirst()
+                .orElseGet(() -> java.util.UUID.randomUUID().toString());
     }
 
     private static String abbreviate(String value) {
@@ -573,6 +662,12 @@ public class OrgFunctionService {
         return function;
     }
 
+    private OrgFunction locked(Long id) {
+        OrgFunction function = orgFunctionRepository.findLockedById(id).orElseThrow(() -> notFound(id));
+        access.requireOrganization(function.getOrganizationId());
+        return function;
+    }
+
     private static void requireEditable(OrgFunction function) {
         if (function.getStatus() == PUBLISHED) {
             throw new WorkflowConflictException(
@@ -580,7 +675,7 @@ public class OrgFunctionService {
         }
         if (!function.isEditable()) {
             throw new WorkflowConflictException(
-                    "Editing requires DRAFT or DEACTIVATED; a card under review must be withdrawn or returned to draft first");
+                    "Editing requires DRAFT, CHANGES_REQUESTED or DEACTIVATED; a card under review must be withdrawn or returned to draft first");
         }
     }
 

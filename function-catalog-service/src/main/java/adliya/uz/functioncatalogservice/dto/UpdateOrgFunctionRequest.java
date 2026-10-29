@@ -19,14 +19,23 @@ public record UpdateOrgFunctionRequest(
         @Valid ServiceInstructions instructions,
         @Size(max = 500) @Pattern(regexp = OfficialSourceUrl.PATTERN, message = OfficialSourceUrl.MESSAGE) String officialSourceUrl,
         /** Null keeps the current details (details of removed document lines are dropped); a list replaces them. */
-        @Size(max = DocumentDetail.MAX_ITEMS) List<@Valid DocumentDetail> documentDetails
+        @Size(max = DocumentDetail.MAX_ITEMS) List<@Valid DocumentDetail> documentDetails,
+        /** Staff-only digitalization/decentralization/risk profile; null keeps the current one. */
+        @Valid ServiceProfile profile,
+        /** Editor step the author saved from (general, mechanism, digitalization, decentralization, other). */
+        @Pattern(regexp = CreateOrgFunctionRequest.EDITOR_STEP_PATTERN) String editorStep
 ) {
+    public UpdateOrgFunctionRequest(String name, String description, Long organizationId, String requirements, String category, Long categoryId,
+                                    String sourceLanguage, ServiceInstructions instructions, String officialSourceUrl, List<DocumentDetail> documentDetails) {
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl,
+                documentDetails, null, null);
+    }
     public UpdateOrgFunctionRequest(String name, String description, Long organizationId, String requirements, String category,
                                     Long categoryId, String sourceLanguage, ServiceInstructions instructions, String officialSourceUrl) {
-        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl, null);
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, instructions, officialSourceUrl, null, null, null);
     }
     public UpdateOrgFunctionRequest(String name, String description, Long organizationId, String requirements,
                                     String category, Long categoryId, String sourceLanguage) {
-        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, null, null, null);
+        this(name, description, organizationId, requirements, category, categoryId, sourceLanguage, null, null, null, null, null);
     }
 }

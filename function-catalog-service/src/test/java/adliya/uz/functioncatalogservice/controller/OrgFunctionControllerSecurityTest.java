@@ -56,6 +56,9 @@ class OrgFunctionControllerSecurityTest {
     @MockitoBean
     private adliya.uz.functioncatalogservice.service.ServiceGuideService guides;
 
+    @MockitoBean
+    private adliya.uz.functioncatalogservice.service.FunctionReviewService reviews;
+
     @Test
     void publicListRemainsAnonymousAndReturnsOnlyServicePublicResult() throws Exception {
         when(orgFunctionService.getAll()).thenReturn(List.of(function(1L, true)));

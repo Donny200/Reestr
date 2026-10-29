@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { expect, type Locator, type Page } from '@playwright/test';
-import type { CreateFunctionRequest, AdminFunction } from '../src/types/adminFunctions';
+import type { CreateFunctionRequest, AdminFunction, ReviewComment, ReviewMark, WizardStep } from '../src/types/adminFunctions';
 import type { LegacyUserApi, Organization, PublicChange, Region, SessionInfo, StaffMember, InterfaceTranslationOverview } from '../src/types/api';
 import type { EngagementCounts, EngagementReport, OrganizationSummary, QualityQueue, QualityReminder } from '../src/types/analytics';
 import type { InformationReport, ReportHistoryEntry } from '../src/types/reports';
@@ -68,6 +68,39 @@ export interface FixtureOptions {
   supportConversations?: SupportFixture[];
   /** The visitor already has a support identity in this browser (cookie) before the test starts. */
   supportIdentity?: 'NONE' | 'BROWSER' | 'ACCOUNT';
+  /** Review notes that already exist (e.g. a service returned with corrections). */
+  reviewComments?: FixtureReviewComment[];
+}
+/** A stored review note plus the field value the reviewer saw (to decide "changed since the review"). */
+export type FixtureReviewComment = ReviewComment & { seen: string };
+const STEP_OF_PATH: Record<string, WizardStep> = {
+  name: 'general', description: 'general', organizationId: 'general', categoryId: 'general', sourceLanguage: 'general',
+  'instructions.whoCanUse': 'mechanism', 'instructions.steps': 'mechanism', 'instructions.requiredDocuments': 'mechanism',
+  'instructions.processingTime': 'mechanism', 'instructions.fee': 'mechanism', 'profile.deliveryChannel': 'digitalization',
+  'profile.onlineServiceUrl': 'digitalization', 'instructions.whereHowToApply': 'digitalization', 'profile.provisionLevel': 'decentralization',
+  'profile.riskLevel': 'decentralization', 'profile.riskNotes': 'decentralization', requirements: 'other', officialSourceUrl: 'other',
+};
+/** Step of a review path, as the backend's ReviewFields decides it; null for unknown paths. */
+export function stepOfReviewPath(path: string): WizardStep | null {
+  if (path.startsWith('section.')) return path.slice('section.'.length) as WizardStep;
+  if (path.startsWith('documentDetails.')) return 'mechanism';
+  return STEP_OF_PATH[path] ?? null;
+}
+/** Current value at a review path, serialized; mirrors the backend fingerprint closely enough for UI tests. */
+export function reviewValue(item: AdminFunction, path: string): string {
+  if (path.startsWith('section.')) {
+    const step = path.slice('section.'.length);
+    return JSON.stringify(Object.keys(STEP_OF_PATH).filter(key => STEP_OF_PATH[key] === step).map(key => reviewValue(item, key)));
+  }
+  if (path.startsWith('documentDetails.')) {
+    const detail = (item.documentDetails ?? []).find(entry => entry.id === path.slice('documentDetails.'.length));
+    return detail ? JSON.stringify({ ...detail }) : '<removed>';
+  }
+  const [group, field] = path.split('.');
+  const value = group === 'instructions' ? item.instructions?.[field as keyof NonNullable<AdminFunction['instructions']>]
+    : group === 'profile' ? item.profile?.[field as keyof NonNullable<AdminFunction['profile']>]
+      : (item as unknown as Record<string, unknown>)[path];
+  return value === null || value === undefined ? '' : String(value).trim();
 }
 export interface SupportFixtureMessage {
   id: number; author: 'VISITOR' | 'STAFF'; body: string; createdAt: string; clientMessageId?: string | null; serviceId?: number | null;
@@ -86,7 +119,7 @@ export function summary(overrides: Partial<OrganizationSummary> = {}): Organizat
     generatedAt: '2026-10-09T08:00:00Z',
     period: { from: '2026-09-10', to: '2026-10-09', previousFrom: '2026-08-11', previousTo: '2026-09-09', timeZone: 'Asia/Tashkent' },
     organizationId: null, categoryId: null,
-    services: { PUBLISHED: 12, PENDING_REVIEW: 2, DRAFT: 3, DEACTIVATED: 1 },
+    services: { PUBLISHED: 12, PENDING_REVIEW: 2, CHANGES_REQUESTED: 0, DRAFT: 3, DEACTIVATED: 1 },
     servicesNeedingAttention: 4,
     attention: { VERIFICATION_OVERDUE: 2, SOURCE_MISSING: 1, INFORMATION_INCOMPLETE: 1, TRANSLATIONS_MISSING: 3 },
     translationsChecked: true, activeLanguages: ['en', 'ru', 'uz'],
@@ -147,7 +180,8 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
   type Payload = Partial<CreateFunctionRequest> & { reason?: string; languages?: string[]; overwriteMachine?: boolean;
     status?: InformationReport['status'] | HelpConversationStatus; note?: string; instructions?: Record<string, string>; email?: string; token?: string; newPassword?: string;
     code?: string; password?: string; serviceId?: number; helpful?: boolean; userId?: number; body?: string; clientMessageId?: string;
-    organizationId?: number; reportCategory?: ReportCategory; upTo?: number; message?: string; notifyByEmail?: boolean };
+    organizationId?: number; reportCategory?: ReportCategory; upTo?: number; message?: string; notifyByEmail?: boolean;
+    fieldPath?: string; comment?: string; summary?: string };
   const organizations = structuredClone(options.organizations ?? [organization as Organization]);
   const reports = structuredClone(options.reports ?? []);
   const reminders = structuredClone(options.reminders ?? []);
@@ -164,9 +198,25 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
   const legacyUsers = structuredClone(options.legacyUsers ?? []);
   const resetTokens: { token: string; userId: number; used: boolean }[] = [];
   /** Admin responses carry the pending-revision summary of a published record, like the backend does. */
+  const reviewComments: FixtureReviewComment[] = structuredClone(options.reviewComments ?? []);
+  const reviewMarks: (ReviewMark & { functionId: number; cycle: number })[] = [];
+  const cycleOf = (item: AdminFunction) => item.review?.cycle ?? (item.status === 'PENDING_REVIEW' ? 1 : 0);
+  const openOf = (item: AdminFunction) => reviewComments.filter(comment => comment.functionId === item.id && comment.status === 'OPEN');
+  const changed = (item: AdminFunction, comment: FixtureReviewComment) => reviewValue(item, comment.fieldPath) !== comment.seen;
+  const reviewOf = (item: AdminFunction) => {
+    const unaddressed = openOf(item).filter(comment => !changed(item, comment)).map(comment => comment.fieldPath);
+    return { functionId: item.id, status: item.status, reviewCycle: cycleOf(item),
+      comments: reviewComments.filter(comment => comment.functionId === item.id || comment.functionId === item.revisionOfId)
+        .map(({ seen, ...comment }) => ({ ...comment, addressed: comment.status === 'OPEN' && seen !== reviewValue(item, comment.fieldPath) })),
+      reviewedSections: reviewMarks.filter(mark => mark.functionId === item.id && mark.cycle === cycleOf(item))
+        .map(({ section, reviewer, reviewedAt }) => ({ section, reviewer, reviewedAt })),
+      unaddressedFields: unaddressed,
+      canResubmit: ['DRAFT', 'DEACTIVATED', 'CHANGES_REQUESTED'].includes(item.status) && unaddressed.length === 0 };
+  };
   const withRevision = (item: AdminFunction): AdminFunction => {
     const revision = records.find(other => other.revisionOfId === item.id);
-    return revision ? { ...item, revision: { id: revision.id, status: revision.status } } : { ...item, revision: null };
+    const review = { cycle: cycleOf(item), openCorrections: openOf(item).length };
+    return revision ? { ...item, review, revision: { id: revision.id, status: revision.status } } : { ...item, review, revision: null };
   };
   await page.addInitScript(() => window.localStorage.setItem('reestr-task-locale', 'en'));
   await page.route('**/api/**', async route => {
@@ -522,6 +572,7 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
     if (!record) return reply({ message: 'Not found' }, 404);
     const action = match[2];
     if (action === 'admin') return reply(withRevision(record));
+    if (action === 'reactivate') record.review = { cycle: cycleOf(record) + 1 };
     if (action === 'translation-job' && method === 'POST') {
       if (!permissions.includes('FUNCTIONS_TRANSLATIONS_EDIT')) return reply({ message: 'Forbidden' }, 403);
       record.machineTranslation = { automatic: true, status: 'PENDING', attempts: 0, requestedAt: '2026-10-15T08:00:00Z', nextAttemptAt: '2026-10-15T08:00:00Z', lastError: null, missingLanguages: record.machineTranslation?.missingLanguages ?? [] };
@@ -572,6 +623,62 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
         action: 'PUBLISH', details: 'Revision #' + record.id + ' approved: public content replaced' });
       return reply(published);
     }
+    if (action === 'review' && method === 'GET') return permissions.includes('FUNCTIONS_VIEW') ? reply(reviewOf(record)) : reply({ message: 'Forbidden' }, 403);
+    if (action?.startsWith('review/') || action === 'request-changes') {
+      const reviewer = permissions.includes('FUNCTIONS_REVIEW');
+      const sectionMatch = action.match(/^review\/sections\/(\w+)$/);
+      if (sectionMatch) {
+        if (!reviewer && !permissions.includes('FUNCTIONS_PUBLISH')) return reply({ message: 'Forbidden' }, 403);
+        if (record.status !== 'PENDING_REVIEW') return reply({ message: 'Review notes are added while the card is PENDING_REVIEW' }, 409);
+        const index = reviewMarks.findIndex(mark => mark.functionId === record.id && mark.cycle === cycleOf(record) && mark.section === sectionMatch[1]);
+        if (method === 'PUT' && index < 0) reviewMarks.push({ functionId: record.id, cycle: cycleOf(record), section: sectionMatch[1] as WizardStep,
+          reviewer: user.email, reviewedAt: new Date().toISOString() });
+        if (method === 'DELETE' && index >= 0) reviewMarks.splice(index, 1);
+        return reply(reviewOf(record));
+      }
+      if (!reviewer) return reply({ message: 'Forbidden' }, 403);
+      const resolveMatch = action.match(/^review\/comments\/(\d+)\/resolve$/);
+      if (resolveMatch) {
+        const comment = reviewComments.find(item => item.id === Number(resolveMatch[1]) && item.functionId === record.id);
+        if (!comment) return reply({ message: 'Not found' }, 404);
+        if (comment.status !== 'OPEN') return reply({ message: 'This correction is already resolved' }, 409);
+        Object.assign(comment, { status: 'RESOLVED', resolution: 'REVIEWER_RESOLVED', resolvedBy: user.email, resolvedAt: new Date().toISOString(),
+          resolvedInCycle: cycleOf(record) });
+        audits.push({ id: audits.length + 1, functionId: record.id, performedBy: user.email, performedAt: new Date().toISOString(),
+          action: 'REVIEW_COMMENT_RESOLVE', details: 'Correction #' + comment.id + ' resolved by reviewer' });
+        return reply(reviewOf(record));
+      }
+      if (record.status !== 'PENDING_REVIEW') return reply({ message: 'Expected PENDING_REVIEW, found ' + record.status }, 409);
+      if (action === 'request-changes') {
+        if (openOf(record).length === 0) return reply({ message: 'Flag at least one field' }, 409);
+        record.status = 'CHANGES_REQUESTED';
+        audits.push({ id: audits.length + 1, functionId: record.id, performedBy: user.email, performedAt: new Date().toISOString(),
+          action: 'REQUEST_CHANGES', details: 'PENDING_REVIEW -> CHANGES_REQUESTED; corrections: ' + openOf(record).map(item => item.fieldPath).join(', ')
+            + (body.summary ? '\n' + body.summary : '') });
+        return reply(withRevision(record));
+      }
+      const fieldPath = body.fieldPath ?? '';
+      const section = stepOfReviewPath(fieldPath);
+      if (!body.comment?.trim()) return reply({ message: 'comment: must not be blank', fieldErrors: { comment: 'must not be blank' } }, 400);
+      if (!section) return reply({ message: 'Unknown field' }, 400);
+      if (openOf(record).some(item => item.fieldPath === fieldPath)) return reply({ message: 'This field already has an open correction' }, 409);
+      reviewComments.push({ id: reviewComments.length + 1, functionId: record.id, fieldPath, section, reviewCycle: cycleOf(record),
+        comment: body.comment.trim(), status: 'OPEN', reviewerUserId: user.id, reviewer: user.email, createdAt: new Date().toISOString(),
+        addressed: false, seen: reviewValue(record, fieldPath) });
+      audits.push({ id: audits.length + 1, functionId: record.id, performedBy: user.email, performedAt: new Date().toISOString(),
+        action: 'REVIEW_COMMENT_ADD', details: 'Correction on ' + fieldPath + ': ' + body.comment.trim() });
+      return reply(reviewOf(record));
+    }
+    if (action === 'publish' && openOf(record).length > 0) {
+      return reply({ message: 'Resolve the open corrections before approving: ' + openOf(record).map(item => item.fieldPath).join(', ') }, 409);
+    }
+    if (action === 'submit-for-review') {
+      const pending = openOf(record).filter(comment => !changed(record, comment));
+      if (pending.length) return reply({ message: 'Change the fields the reviewer flagged before resubmitting: ' + pending.map(item => item.fieldPath).join(', ') }, 409);
+      openOf(record).forEach(comment => Object.assign(comment, { status: 'RESOLVED', resolution: 'ADDRESSED', resolvedBy: user.email,
+        resolvedAt: new Date().toISOString(), resolvedInCycle: cycleOf(record) + 1 }));
+      record.review = { cycle: cycleOf(record) + 1 };
+    }
     if (action === 'audit') return reply(audits.filter(entry => entry.functionId === record.id));
     if (action === 'guide.pdf') {
       if (record.status !== 'PUBLISHED') return reply({ message: 'Not found' }, 404);
@@ -615,5 +722,6 @@ export async function setup(page: Page, options: FixtureOptions = {}) {
       performedAt: new Date().toISOString(), action: action ?? 'UPDATE', details: body?.reason ?? 'Changed card' });
     return method === 'DELETE' ? route.fulfill({ status: 204 }) : reply(record);
   });
-  return { records, requests, failures, audits, organizations, reports, reminders, resetTokens, feedbackVotes, sessions, supportConversations, support };
+  return { records, requests, failures, audits, organizations, reports, reminders, resetTokens, feedbackVotes, sessions, supportConversations, support,
+    reviewComments, reviewMarks };
 }

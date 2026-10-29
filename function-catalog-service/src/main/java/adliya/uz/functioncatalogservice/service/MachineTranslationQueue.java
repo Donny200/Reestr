@@ -149,7 +149,7 @@ public class MachineTranslationQueue {
 
         Backfill run = new Backfill(limit);
         Set<Long> openFunctions = new HashSet<>(jobs.findOpenTargetIds(TranslationTarget.FUNCTION));
-        List<OrgFunction> candidates = inScope(scope, List.of(FunctionStatus.DRAFT, FunctionStatus.DEACTIVATED));
+        List<OrgFunction> candidates = inScope(scope, List.of(FunctionStatus.DRAFT, FunctionStatus.CHANGES_REQUESTED, FunctionStatus.DEACTIVATED));
         Set<Long> examinedDrafts = candidates.stream().map(OrgFunction::getId).collect(Collectors.toCollection(HashSet::new));
         for (OrgFunction function : candidates) {
             if (run.full()) {

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type { Translate } from '../../utils/errors';
 import { optionalString, requiredString } from '../../lib/validation';
-import type { AdminFunction, CreateFunctionRequest, DocumentDetailValues, FunctionFormValues, UpdateFunctionRequest } from '../../types/adminFunctions';
+import type {
+  AdminFunction, CreateFunctionRequest, DocumentDetailValues, FunctionFormValues, ServiceProfile, UpdateFunctionRequest, WizardStep,
+} from '../../types/adminFunctions';
 import type { DocumentDetail, DocumentForm, ServiceInstructions } from '../../types/api';
 import { documentLines } from '../../utils/documentDetails';
 import { INSTRUCTION_FIELDS } from '../../utils/instructions';
@@ -15,6 +17,7 @@ export const MAX_LIST_ITEMS = 50;
 export const VALIDITY_MAX = 200;
 export const NOTES_MAX = 300;
 export const COPIES_MAX = 20;
+export const RISK_NOTES_MAX = 2000;
 
 const WEB_LINK = /^https?:\/\/[^\s/?#]+\S*$/i;
 
@@ -33,13 +36,17 @@ function instructionField(t: Translate, max: number, list: boolean) {
   );
 }
 
+/**
+ * Schema used when a draft is saved: formats and lengths everywhere, but only what the server needs to store a draft
+ * (name and organization) is required, so a draft can be saved from any step.
+ */
 export function functionFormSchema(t: Translate) {
   const instructions = Object.fromEntries(
     INSTRUCTION_FIELDS.map((field) => [field.key, instructionField(t, field.max, field.list)]),
   ) as Record<keyof ServiceInstructions, ReturnType<typeof instructionField>>;
   return z.object({
     name: requiredString(t, NAME_MAX),
-    description: requiredString(t, DESCRIPTION_MAX),
+    description: optionalString(DESCRIPTION_MAX),
     requirements: optionalString(REQUIREMENTS_MAX),
     organizationId: z.string().min(1, t('validation.selectOrg')),
     categoryId: z.string(),
@@ -55,6 +62,29 @@ export function functionFormSchema(t: Translate) {
       notes: z.string().max(NOTES_MAX),
       formUrl: officialLinkField(t),
     })),
+    deliveryChannel: z.string(),
+    onlineServiceUrl: officialLinkField(t),
+    provisionLevel: z.string(),
+    riskLevel: z.string(),
+    riskNotes: optionalString(RISK_NOTES_MAX),
+  });
+}
+
+/**
+ * Schema of a complete submission (Next on a step and "Submit for review"): the draft rules plus every required field
+ * and the conditional rules of the digitalization and risk steps. The server checks the conditional rules as well.
+ */
+export function functionSubmitSchema(t: Translate) {
+  return functionFormSchema(t).superRefine((values, context) => {
+    if (!values.description.trim()) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['description'], message: t('validation.required') });
+    }
+    if ((values.deliveryChannel === 'ONLINE' || values.deliveryChannel === 'ONLINE_AND_IN_PERSON') && !values.onlineServiceUrl.trim()) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['onlineServiceUrl'], message: t('validation.onlineServiceUrlRequired') });
+    }
+    if (values.riskLevel === 'HIGH' && !values.riskNotes.trim()) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['riskNotes'], message: t('validation.riskNotesRequired') });
+    }
   });
 }
 
@@ -74,6 +104,11 @@ export function emptyFunctionForm(sourceLanguage: string): FunctionFormValues {
     fee: '',
     officialSourceUrl: '',
     documentDetails: [],
+    deliveryChannel: '',
+    onlineServiceUrl: '',
+    provisionLevel: '',
+    riskLevel: '',
+    riskNotes: '',
   };
 }
 
@@ -93,6 +128,7 @@ export function formOf(record: AdminFunction): FunctionFormValues {
     fee: record.instructions?.fee ?? '',
     officialSourceUrl: record.officialSourceUrl ?? '',
     documentDetails: (record.documentDetails ?? []).map((detail) => ({
+      ...(detail.id ? { id: detail.id } : {}),
       document: detail.document,
       form: (detail.form ?? '') as DocumentForm | '',
       copies: detail.copies == null ? '' : String(detail.copies),
@@ -100,6 +136,11 @@ export function formOf(record: AdminFunction): FunctionFormValues {
       notes: detail.notes ?? '',
       formUrl: detail.formUrl ?? '',
     })),
+    deliveryChannel: record.profile?.deliveryChannel ?? '',
+    onlineServiceUrl: record.profile?.onlineServiceUrl ?? '',
+    provisionLevel: record.profile?.provisionLevel ?? '',
+    riskLevel: record.profile?.riskLevel ?? '',
+    riskNotes: record.profile?.riskNotes ?? '',
   };
 }
 
@@ -109,6 +150,7 @@ export function documentDetailsOf(values: Pick<FunctionFormValues, 'requiredDocu
   return values.documentDetails
     .filter((detail) => lines.includes(detail.document.trim()))
     .map((detail: DocumentDetailValues) => ({
+      ...(detail.id ? { id: detail.id } : {}),
       document: detail.document.trim(),
       form: detail.form || null,
       copies: detail.copies.trim() ? Number(detail.copies) : null,
@@ -131,7 +173,17 @@ function instructionsOf(values: FunctionFormValues): ServiceInstructions {
   };
 }
 
-export function toCreateRequest(values: FunctionFormValues): CreateFunctionRequest {
+function profileOf(values: FunctionFormValues): ServiceProfile {
+  return {
+    deliveryChannel: values.deliveryChannel || null,
+    onlineServiceUrl: values.onlineServiceUrl.trim() || null,
+    provisionLevel: values.provisionLevel || null,
+    riskLevel: values.riskLevel || null,
+    riskNotes: values.riskNotes.trim() || null,
+  };
+}
+
+export function toCreateRequest(values: FunctionFormValues, editorStep?: WizardStep): CreateFunctionRequest {
   return {
     name: values.name.trim(),
     description: values.description.trim(),
@@ -142,9 +194,11 @@ export function toCreateRequest(values: FunctionFormValues): CreateFunctionReque
     instructions: instructionsOf(values),
     officialSourceUrl: values.officialSourceUrl.trim(),
     documentDetails: documentDetailsOf(values),
+    profile: profileOf(values),
+    editorStep,
   };
 }
 
-export function toUpdateRequest(values: FunctionFormValues): UpdateFunctionRequest {
-  return { ...toCreateRequest(values), category: values.categoryId ? undefined : '' };
+export function toUpdateRequest(values: FunctionFormValues, editorStep?: WizardStep): UpdateFunctionRequest {
+  return { ...toCreateRequest(values, editorStep), category: values.categoryId ? undefined : '' };
 }

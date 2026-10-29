@@ -21,7 +21,7 @@
 - Для непривязанных черновиков `organizationId` допускает null; видеть/редактировать
   их могут только SUPER_ADMIN или обладатели `FUNCTIONS_MANAGE_ANY_ORGANIZATION`.
   Перед проверкой и публикацией организация обязательна и проверяется через identity-service.
-- Изменять содержимое/переводы/требования можно в DRAFT или DEACTIVATED.
+- Изменять содержимое/переводы/требования можно в DRAFT, CHANGES_REQUESTED или DEACTIVATED.
   PENDING_REVIEW заблокирован до `withdraw` (автор) или `reject` (рецензент).
   PUBLISHED никогда не меняется на месте: правки идут через черновую редакцию (см. ниже),
   поэтому опубликованный текст не меняется в обход повторной проверки, а деактивация для правок не нужна.
@@ -47,10 +47,16 @@ stateDiagram-v2
     [*] --> DRAFT
     DRAFT --> PENDING_REVIEW: submit-for-review
     PENDING_REVIEW --> DRAFT: reject + reason / withdraw
+    PENDING_REVIEW --> CHANGES_REQUESTED: request-changes
+    CHANGES_REQUESTED --> PENDING_REVIEW: submit-for-review
     PENDING_REVIEW --> PUBLISHED: publish
     PUBLISHED --> DEACTIVATED: DELETE
     DEACTIVATED --> PENDING_REVIEW: submit-for-review / reactivate
 ```
+
+Статус `CHANGES_REQUESTED` (возврат с замечаниями к отдельным полям), замечания рецензента и пошаговый редактор описаны в
+[service-wizard-and-review.md](service-wizard-and-review.md). `CHANGES_REQUESTED` редактируется так же, как `DRAFT`;
+`publish` отклоняется, пока у карточки есть открытые замечания.
 
 ### Черновые редакции опубликованных карточек
 
@@ -85,7 +91,9 @@ stateDiagram-v2
 
 | Метод и путь | Permission |
 |---|---|
-| POST /api/functions/{id}/submit-for-review (DRAFT или DEACTIVATED) | FUNCTIONS_SUBMIT_REVIEW |
+| POST /api/functions/{id}/submit-for-review (DRAFT, CHANGES_REQUESTED или DEACTIVATED) | FUNCTIONS_SUBMIT_REVIEW |
+| POST /api/functions/{id}/request-changes, POST /api/functions/{id}/review/comments[/{c}/resolve] | FUNCTIONS_REVIEW |
+| GET /api/functions/{id}/review | FUNCTIONS_VIEW |
 | POST /api/functions/{id}/withdraw | FUNCTIONS_SUBMIT_REVIEW |
 | POST /api/functions/{id}/revisions | FUNCTIONS_EDIT |
 | DELETE /api/functions/{id}/revision | FUNCTIONS_EDIT |

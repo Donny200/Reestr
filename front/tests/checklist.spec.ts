@@ -31,7 +31,7 @@ test('the removed service comparison leaves no controls, links or route behind',
   await expect(page.getByRole('button', { name: /Compare|In comparison/ })).toHaveCount(0);
   // Saving, the checklist and printing stay.
   await expect(page.getByRole('main').getByRole('button', { name: /Save/ }).first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Print checklist' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Print visit sheet' })).toBeVisible();
 
   for (const path of ['/compare', '/compare?ids=1,2']) {
     await page.goto(path);
@@ -76,8 +76,10 @@ test('the preparation checklist lives in this browser, survives reloads and flag
   await expect(main.getByText('0 / 4')).toBeVisible();
   expect(await page.evaluate(() => window.localStorage.getItem('reestr-checklist-1'))).toBeNull();
 
+  // On paper the visit sheet replaces the interactive checklist; its boxes are ticked by hand.
   await page.emulateMedia({ media: 'print' });
-  await expect(main.getByRole('checkbox', { name: 'Two photos' })).toBeVisible();
+  await expect(main.getByRole('checkbox', { name: 'Two photos' })).toBeHidden();
   await expect(main.getByRole('button', { name: 'Clear checklist' })).toBeHidden();
+  await expect(page.getByRole('article', { name: 'Visit preparation sheet' }).getByText('Two photos', { exact: true })).toBeVisible();
   expect(writes(fixture.requests)).toEqual([]);
 });

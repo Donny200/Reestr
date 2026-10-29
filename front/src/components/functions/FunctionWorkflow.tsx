@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { CheckCircle2Icon, PencilIcon, PowerOffIcon, RotateCcwIcon, SendIcon, Trash2Icon, UndoIcon } from 'lucide-react';
+import { CheckCircle2Icon, MessageSquareWarningIcon, PencilIcon, PowerOffIcon, RotateCcwIcon, SendIcon, Trash2Icon, UndoIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/auth';
 import { useI18n } from '../../contexts/i18n';
 import { Button } from '../ui/Button';
@@ -9,26 +9,32 @@ import { Card, CardBody, CardHeader } from '../ui/Card';
 import { Field } from '../ui/Field';
 import { Textarea } from '../ui/Input';
 import { ConfirmModal, Modal } from '../ui/Modal';
+import { RequestChangesDialog } from './FunctionReviewPanel';
 import {
   useCreateFunctionRevision,
   useDeactivateFunction,
   useDiscardFunctionRevision,
+  useRequestFunctionChanges,
   useTransitionFunction,
 } from '../../features/functions/queries';
+import { WIZARD_STEPS } from '../../features/functions/wizard';
 import { REASON_MAX } from '../../features/functions/schema';
 import { InlineAlert } from '../../features/functions/InlineAlert';
 import { errorMessage } from '../../utils/errors';
-import type { AdminFunction, FunctionTransition } from '../../types/adminFunctions';
+import type { AdminFunction, FunctionReview, FunctionTransition } from '../../types/adminFunctions';
 
 interface Props {
   record: AdminFunction;
   dirty: boolean;
   busy: boolean;
+  /** Review state; approval waits for every section to be reviewed and every correction to be resolved. */
+  review?: FunctionReview;
+  labelOf?: (path: string) => string;
 }
 
-type Dialog = 'reject' | 'deactivate' | 'discard' | null;
+type Dialog = 'reject' | 'deactivate' | 'discard' | 'request-changes' | null;
 
-export function FunctionWorkflow({ record, dirty, busy }: Props) {
+export function FunctionWorkflow({ record, dirty, busy, review, labelOf = (path) => path }: Props) {
   const { hasPermission } = useAuth();
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -36,22 +42,30 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
   const deactivate = useDeactivateFunction(record.id);
   const createRevision = useCreateFunctionRevision(record.id);
   const discardRevision = useDiscardFunctionRevision(record.revisionOfId ?? record.id);
+  const requestChanges = useRequestFunctionChanges(record.id);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState<unknown>(null);
-  const running = transition.isPending || deactivate.isPending || createRevision.isPending || discardRevision.isPending;
+  const running = transition.isPending || deactivate.isPending || createRevision.isPending || discardRevision.isPending || requestChanges.isPending;
   const disabled = dirty || busy;
 
   const canEdit = hasPermission('FUNCTIONS_EDIT');
-  const canSubmit = (record.status === 'DRAFT' || record.status === 'DEACTIVATED') && hasPermission('FUNCTIONS_SUBMIT_REVIEW');
+  const canSubmit = (record.status === 'DRAFT' || record.status === 'DEACTIVATED' || record.status === 'CHANGES_REQUESTED')
+    && hasPermission('FUNCTIONS_SUBMIT_REVIEW');
   const canWithdraw = record.status === 'PENDING_REVIEW' && hasPermission('FUNCTIONS_SUBMIT_REVIEW');
   const canReview = record.status === 'PENDING_REVIEW' && hasPermission('FUNCTIONS_REVIEW');
   const canPublish = record.status === 'PENDING_REVIEW' && hasPermission('FUNCTIONS_PUBLISH');
   const canDeactivate = record.status === 'PUBLISHED' && hasPermission('FUNCTIONS_DEACTIVATE');
   const canReactivate = record.status === 'DEACTIVATED' && !canSubmit && hasPermission('FUNCTIONS_REACTIVATE');
   const canOpenRevision = record.status === 'PUBLISHED' && canEdit;
-  const canDiscard = Boolean(record.revisionOfId) && record.status === 'DRAFT' && canEdit;
+  const canDiscard = Boolean(record.revisionOfId) && (record.status === 'DRAFT' || record.status === 'CHANGES_REQUESTED') && canEdit;
   if (!(canSubmit || canWithdraw || canReview || canPublish || canDeactivate || canReactivate || canOpenRevision || canDiscard)) return null;
+
+  const openComments = review?.comments.filter((comment) => comment.status === 'OPEN') ?? [];
+  const reviewedCount = review?.reviewedSections.length ?? 0;
+  const sectionsPending = reviewedCount < WIZARD_STEPS.length;
+  const unaddressed = review?.unaddressedFields ?? [];
+  const approvalBlocked = !review || openComments.length > 0 || sectionsPending;
 
   async function run(action: FunctionTransition | 'deactivate' | 'discard') {
     if (disabled) return;
@@ -67,6 +81,11 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
         return;
       } else {
         await transition.mutateAsync({ action, reason: action === 'reject' ? reason.trim() : undefined });
+      }
+      if (action === 'publish') {
+        setDialog(null);
+        toast.success(t('review.approved'));
+        return;
       }
       setDialog(null);
       setReason('');
@@ -85,6 +104,18 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
         : await createRevision.mutateAsync(undefined);
       toast.success(t('fnAdmin.revisionOpened', 'Draft revision opened; visitors keep seeing the published version'));
       navigate(`/admin/functions/${revision.id}`);
+    } catch (failure) {
+      setError(failure);
+    }
+  }
+
+  async function sendBack(summary: string) {
+    if (disabled) return;
+    setError(null);
+    try {
+      await requestChanges.mutateAsync(summary);
+      setDialog(null);
+      toast.success(t('review.changesRequested'));
     } catch (failure) {
       setError(failure);
     }
@@ -119,13 +150,29 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
             </Button>
           )}
           {canSubmit && (
-            <Button variant="dark" icon={<SendIcon />} disabled={disabled || record.organizationId === null} loading={transition.isPending} onClick={() => void run('submit-for-review')}>
+            <Button
+              variant="dark"
+              icon={<SendIcon />}
+              disabled={disabled || record.organizationId === null || unaddressed.length > 0}
+              loading={transition.isPending}
+              onClick={() => void run('submit-for-review')}
+            >
               {t('fnAdmin.submit')}
             </Button>
           )}
           {canPublish && (
-            <Button variant="dark" icon={<CheckCircle2Icon />} disabled={disabled} loading={transition.isPending} onClick={() => void run('publish')}>
-              {t('fnAdmin.publish')}
+            <Button variant="dark" icon={<CheckCircle2Icon />} disabled={disabled || approvalBlocked} loading={transition.isPending} onClick={() => void run('publish')}>
+              {t('review.approve')}
+            </Button>
+          )}
+          {canReview && (
+            <Button
+              variant="outline"
+              icon={<MessageSquareWarningIcon />}
+              disabled={disabled || openComments.length === 0}
+              onClick={() => openDialog('request-changes')}
+            >
+              {t('review.requestChanges')}
             </Button>
           )}
           {canReview && (
@@ -164,9 +211,25 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
         {canPublish && record.revisionOfId && (
           <p className="text-sm leading-6 text-secondary">{t('fnAdmin.publishRevisionHint', 'Publishing replaces the public version of the service with this revision.')}</p>
         )}
+        {canPublish && review && openComments.length > 0 && (
+          <InlineAlert tone="warning">
+            {t('review.approveBlockedCorrections', { fields: openComments.map((comment) => labelOf(comment.fieldPath)).join(', ') })}
+          </InlineAlert>
+        )}
+        {canPublish && review && openComments.length === 0 && sectionsPending && (
+          <p className="text-sm leading-6 text-secondary">{t('review.approveBlockedSections')}</p>
+        )}
+        {canReview && openComments.length === 0 && (
+          <p className="text-sm leading-6 text-secondary">{t('review.requestChangesNeedsFlag')}</p>
+        )}
+        {canSubmit && unaddressed.length > 0 && (
+          <InlineAlert tone="warning">
+            {t('review.unaddressedBlock', { fields: unaddressed.map((path) => labelOf(path)).join(', ') })}
+          </InlineAlert>
+        )}
         {dirty && <InlineAlert tone="warning">{t('fnAdmin.saveFirst')}</InlineAlert>}
         {canSubmit && record.organizationId === null && <InlineAlert tone="warning">{t('fnAdmin.assignFirst')}</InlineAlert>}
-        {Boolean(error) && dialog !== 'reject' && <InlineAlert tone="danger">{errorMessage(error, t)}</InlineAlert>}
+        {Boolean(error) && dialog !== 'reject' && dialog !== 'request-changes' && <InlineAlert tone="danger">{errorMessage(error, t)}</InlineAlert>}
       </CardBody>
 
       <Modal
@@ -191,6 +254,16 @@ export function FunctionWorkflow({ record, dirty, busy }: Props) {
           </div>
         </form>
       </Modal>
+
+      <RequestChangesDialog
+        open={dialog === 'request-changes'}
+        comments={openComments}
+        labelOf={labelOf}
+        loading={running}
+        error={dialog === 'request-changes' ? error : null}
+        onClose={() => setDialog(null)}
+        onSubmit={(summary) => void sendBack(summary)}
+      />
 
       <ConfirmModal
         open={dialog === 'deactivate'}

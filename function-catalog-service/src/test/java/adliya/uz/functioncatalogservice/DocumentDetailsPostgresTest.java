@@ -95,8 +95,10 @@ class DocumentDetailsPostgresTest {
                 new DocumentDetail(" Passport ", DocumentDetail.Form.ORIGINAL_AND_COPY, 2, " Valid for at least 6 months ", "", FORM),
                 new DocumentDetail("Photo 3x4", null, null, " ", null, null))));
         OrgFunction stored = functions.findById(card.getId()).orElseThrow();
-        assertThat(stored.getDocumentDetails()).containsExactly(
+        assertThat(stored.getDocumentDetails()).usingRecursiveFieldByFieldElementComparatorIgnoringFields("id").containsExactly(
                 new DocumentDetail("Passport", DocumentDetail.Form.ORIGINAL_AND_COPY, 2, "Valid for at least 6 months", null, FORM));
+        // Every stored item gets a stable id that review notes can be attached to.
+        assertThat(stored.getDocumentDetails().get(0).id()).matches(DocumentDetail.ID_PATTERN);
     }
 
     @Test void detailsMustBelongToTheDocumentListAndLinksMustBeWebLinks() throws Exception {

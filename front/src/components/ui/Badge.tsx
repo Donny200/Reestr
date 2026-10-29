@@ -59,6 +59,7 @@ export function StatusBadge({ enabled }: { enabled: boolean }) {
 const functionTones: Record<FunctionStatus, StatusTone> = {
   DRAFT: 'draft',
   PENDING_REVIEW: 'pending',
+  CHANGES_REQUESTED: 'pending',
   PUBLISHED: 'published',
   DEACTIVATED: 'danger',
 };

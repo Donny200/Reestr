@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
 public class ServiceQualityService {
 
     private static final List<FunctionStatus> QUEUE_ORDER = List.of(
-            FunctionStatus.PUBLISHED, FunctionStatus.PENDING_REVIEW, FunctionStatus.DRAFT, FunctionStatus.DEACTIVATED);
+            FunctionStatus.PUBLISHED, FunctionStatus.PENDING_REVIEW, FunctionStatus.CHANGES_REQUESTED, FunctionStatus.DRAFT,
+            FunctionStatus.DEACTIVATED);
     private static final Comparator<QualityQueue.Item> ORDER = Comparator
             .comparingInt((QualityQueue.Item item) -> QUEUE_ORDER.indexOf(item.status()))
             .thenComparing(Comparator.comparingInt((QualityQueue.Item item) -> item.issues().size()).reversed())

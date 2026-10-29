@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
-import { GitBranchIcon, LanguagesIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react';
+import { GitBranchIcon, LanguagesIcon, MessageSquareWarningIcon, PlusIcon, TriangleAlertIcon } from 'lucide-react';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Card, CardBody } from '../../components/ui/Card';
 import { DataTable } from '../../components/ui/DataTable';
@@ -81,6 +81,12 @@ export function AdminFunctionsPage() {
               <p className="mt-1 inline-flex items-center gap-1 text-xs text-secondary" lang={locale}>
                 <GitBranchIcon className="h-3 w-3" aria-hidden="true" />
                 {t('fnAdmin.revisionOf', 'Draft revision of service')} #{row.original.revisionOfId}
+              </p>
+            )}
+            {(row.original.review?.openCorrections ?? 0) > 0 && (
+              <p className="mt-1 inline-flex items-center gap-1 text-xs text-status-pending" lang={locale}>
+                <MessageSquareWarningIcon className="h-3 w-3" aria-hidden="true" />
+                {t('review.openCorrections', { count: row.original.review?.openCorrections ?? 0 })}
               </p>
             )}
             {row.original.assignee && (

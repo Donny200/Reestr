@@ -20,6 +20,9 @@ const tones: Record<string, StatusTone> = {
   WITHDRAW: 'pending',
   REVISION_CREATE: 'draft',
   REVISION_DISCARD: 'danger',
+  REQUEST_CHANGES: 'pending',
+  REVIEW_COMMENT_ADD: 'pending',
+  REVIEW_COMMENT_RESOLVE: 'published',
 };
 
 function normalizeAction(action: string): string {

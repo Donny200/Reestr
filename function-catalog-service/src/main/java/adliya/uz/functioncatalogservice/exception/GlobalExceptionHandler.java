@@ -33,8 +33,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InvalidFieldException.class)
     public ResponseEntity<Map<String, Object>> invalidField(InvalidFieldException ex) {
-        Map<String, Object> body = body(HttpStatus.BAD_REQUEST, ex.field() + ": " + ex.getMessage());
-        body.put("fieldErrors", Map.of(ex.field(), ex.getMessage()));
+        Map<String, Object> body = body(HttpStatus.BAD_REQUEST,
+                ex.fields().size() == 1 ? ex.field() + ": " + ex.getMessage() : ex.getMessage());
+        body.put("fieldErrors", ex.fields());
         return ResponseEntity.badRequest().body(body);
     }
 

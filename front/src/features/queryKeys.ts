@@ -47,6 +47,7 @@ export const functionKeys = {
   admin: () => [...functionKeys.all, 'admin'] as const,
   detail: (id: number) => [...functionKeys.all, 'detail', id] as const,
   audit: (id: number) => [...functionKeys.all, 'audit', id] as const,
+  review: (id: number) => [...functionKeys.all, 'review', id] as const,
   categories: () => [...functionKeys.all, 'categories'] as const,
   capabilities: () => [...functionKeys.all, 'capabilities'] as const,
   public: () => [...functionKeys.all, 'public'] as const,

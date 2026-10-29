@@ -21,8 +21,11 @@ test('editor stores structured instructions and verifies without an external sou
   await expect(page.getByText('No external link; not required')).toBeVisible();
   await expect(page.getByText('Add the official source link before verifying.')).toHaveCount(0);
 
+  const steps = page.getByRole('navigation', { name: 'Editor steps' });
+  await steps.getByRole('button', { name: 'Service mechanism' }).click();
   await page.getByLabel('Step-by-step procedure').fill('Apply online\n\nCollect the certificate');
   await page.getByLabel('Official fee').fill('Free of charge');
+  await steps.getByRole('button', { name: 'Other information' }).click();
   await page.getByLabel('External source link (optional)').fill('not a link');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByText('Enter a full link that starts with https://')).toBeVisible();

@@ -3,7 +3,11 @@ package adliya.uz.functioncatalogservice.repository;
 import adliya.uz.functioncatalogservice.entity.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -22,6 +26,11 @@ public interface OrgFunctionRepository extends JpaRepository<OrgFunction, Long> 
     Optional<OrgFunction> findByRevisionOfId(Long revisionOfId);
     List<OrgFunction> findAllByRevisionOfIdIn(Collection<Long> revisionOfIds);
     List<OrgFunction> findAllByAssignedUserId(Long assignedUserId);
+
+    /** SELECT ... FOR UPDATE: serializes review decisions, review notes and submissions of one card. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select f from OrgFunction f where f.id = :id")
+    Optional<OrgFunction> findLockedById(@Param("id") Long id);
 
     /** A published card as the public site sees it; anything else is "not found". */
     default OrgFunction requirePublished(Long id) {

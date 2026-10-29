@@ -1,5 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { setup, card, allPermissions, chooseOption } from './fixtures';
+
+/** Reviewer checklist: every step of the submission is marked as reviewed before it can be approved. */
+async function reviewEverySection(page: Page) {
+  for (let step = 0; step < 5; step++) {
+    await page.getByRole('button', { name: 'Mark section as reviewed', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Reviewed', exact: true })).toBeVisible();
+    if (step < 4) await page.getByRole('button', { name: 'Next step', exact: true }).click();
+  }
+}
 
 test('all statuses, filters, active languages and pagination', async ({ page }) => {
   await setup(page, { records: Array.from({ length: 56 }, (_, i) => card(i + 1, i < 3 ? 'PUBLISHED' : 'DRAFT')) });
@@ -29,11 +38,11 @@ test('create failure preserves input, retry creates draft and reload sees it', a
   await page.getByLabel('Description', { exact: false }).first().fill('Test service');
   await chooseOption(page.getByLabel('Organization', { exact: false }).first(), '10');
   fixture.failures.set('POST /api/functions', 400);
-  await page.getByRole('button', { name: 'Create service', exact: true }).click();
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByText('Please retry this operation')).toBeVisible();
   await expect(page.getByLabel('Name', { exact: false }).first()).toHaveValue('Test');
-  await page.getByRole('button', { name: 'Create service', exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/functions\/12$/);
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/functions\/12\?step=general$/);
   await expect(page.getByText('Automatic translation is unavailable.', { exact: false })).toBeVisible();
   await page.getByRole('main').getByRole('link', { name: 'Back', exact: true }).click();
   await page.reload();
@@ -62,17 +71,22 @@ test('draft editor, required rejection reason, publication, deactivation and re-
   await dialog.getByRole('button', { name: 'Return to draft', exact: true }).click();
   await expect(page.getByLabel('Name', { exact: false }).first()).toBeEnabled();
   await page.getByRole('button', { name: 'Submit for review', exact: true }).click();
-  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve and publish', exact: true })).toBeDisabled();
+  await reviewEverySection(page);
+  await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Deactivate', exact: true })).toBeVisible();
   expect(fixture.records[0].status).toBe('PUBLISHED');
   await page.getByRole('button', { name: 'Deactivate', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Deactivate', exact: true }).click();
   expect(fixture.records[0].status).toBe('DEACTIVATED');
   await expect(page.getByText('Deactivated and hidden from visitors. Edit it here', { exact: false })).toBeVisible();
+  // The reviewer finished on the last step; the stepper goes straight back to the first one.
+  await page.getByRole('navigation', { name: 'Editor steps' }).getByRole('button', { name: 'General information' }).click();
   await expect(page.getByLabel('Name', { exact: false }).first()).toBeEnabled();
   await page.getByLabel('Description', { exact: false }).first().fill('Corrected after deactivation');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByRole('button', { name: 'Submit for review', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve and publish', exact: true })).toBeVisible();
   expect(fixture.records[0].status).toBe('PENDING_REVIEW');
   expect(fixture.records[0].description).toBe('Corrected after deactivation');
   await expect(page.getByText('Clarify documents', { exact: true })).toBeVisible();
@@ -99,8 +113,9 @@ test('published service is edited through a draft revision that replaces the pub
   await expect(page).toHaveURL(/\/admin\/functions\/2$/);
   await page.getByRole('button', { name: 'Submit for review', exact: true }).click();
   await expect(page.getByText('Publishing replaces the public version', { exact: false })).toBeVisible();
-  await page.getByRole('button', { name: 'Publish', exact: true }).click();
-  await expect(page).toHaveURL(/\/admin\/functions\/2$/);
+  await reviewEverySection(page);
+  await page.getByRole('button', { name: 'Approve and publish', exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/functions\/2\?step=other$/);
   expect(fixture.records).toHaveLength(1);
   expect(fixture.records[0]).toMatchObject({ id: 1, status: 'PUBLISHED', description: 'Revised public text' });
 
@@ -155,7 +170,8 @@ test('permission guards and reviewer cannot publish without publish permission',
   await expect(page.getByRole('link', { name: 'Create service', exact: true })).toHaveCount(0);
   await page.goto('/admin/functions/1');
   await expect(page.getByRole('button', { name: 'Return to draft', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Publish', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Approve and publish', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Request corrections', exact: true })).toBeDisabled();
   await expect(page.getByRole('heading', { name: 'Translations', exact: true })).toHaveCount(0);
   await page.goto('/admin/functions/new');
   await expect(page.getByText('You do not have permission for this action')).toBeVisible();

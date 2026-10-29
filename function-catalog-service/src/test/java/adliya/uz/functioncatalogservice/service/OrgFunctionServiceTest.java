@@ -34,8 +34,14 @@ class OrgFunctionServiceTest {
     @Mock ReportReviewService reports;
     @Mock PublicChangeService publicChanges;
     @Mock MachineTranslationQueue translations;
+    @Mock FunctionReviewService review;
     @InjectMocks OrgFunctionService service;
     @AfterEach void clear() { SecurityContextHolder.clearContext(); }
+    /** Workflow actions read the card with a row lock; it returns whatever the plain lookup is stubbed with. */
+    @BeforeEach void lockedLookup() {
+        lenient().when(orgFunctionRepository.findLockedById(anyLong()))
+                .thenAnswer(call -> orgFunctionRepository.findById(call.getArgument(0)));
+    }
 
     @Test void publicQueriesStrictlyUsePublished() {
         service.getAll(); service.getByOrganizationId(10L); service.getByCategory("Registry");
@@ -49,7 +55,7 @@ class OrgFunctionServiceTest {
 
     static Stream<Arguments> transitions() {
         return Stream.of(
-                new Object[]{"submit", EnumSet.of(DRAFT, DEACTIVATED), PENDING_REVIEW, AuditAction.SUBMIT_REVIEW},
+                new Object[]{"submit", EnumSet.of(DRAFT, DEACTIVATED, CHANGES_REQUESTED), PENDING_REVIEW, AuditAction.SUBMIT_REVIEW},
                 new Object[]{"withdraw", EnumSet.of(PENDING_REVIEW), DRAFT, AuditAction.WITHDRAW},
                 new Object[]{"reject", EnumSet.of(PENDING_REVIEW), DRAFT, AuditAction.REJECT},
                 new Object[]{"publish", EnumSet.of(PENDING_REVIEW), PUBLISHED, AuditAction.PUBLISH},

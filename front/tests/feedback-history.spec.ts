@@ -16,7 +16,8 @@ test('public pages show the last update and the changed sections of approved pub
   await expect(page.getByRole('main').getByText('Updated ' + updatedOn)).toBeVisible();
   await page.goto('/functions/1');
   const main = page.getByRole('main');
-  await expect(main.getByText('Last updated: ' + updatedOn)).toBeVisible();
+  // The print-only visit sheet repeats the date; only what is on screen is checked.
+  await expect(main.getByText('Last updated: ' + updatedOn).filter({ visible: true })).toBeVisible();
   const list = main.getByRole('list', { name: 'What changed' });
   const entries = list.locator(':scope > li');
   await expect(entries).toHaveCount(2);

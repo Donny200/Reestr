@@ -6,9 +6,11 @@ import type {
   CreateFunctionRequest,
   FunctionAuditEntry,
   FunctionCategory,
+  FunctionReview,
   FunctionTransition,
   MachineTranslationSummary,
   UpdateFunctionRequest,
+  WizardStep,
 } from '../types/adminFunctions';
 
 export type { FunctionAuditEntry };
@@ -95,3 +97,19 @@ export const backfillTranslations = (includePublished: boolean, limit = 50) =>
     method: 'POST',
     query: { includePublished, limit },
   });
+
+/** Review notes (open and resolved history) and the reviewer's section checklist of the current cycle. */
+export const getFunctionReview = (id: number) => apiRequest<FunctionReview>(`/api/functions/${id}/review`);
+
+export const addReviewComment = (id: number, fieldPath: string, comment: string) =>
+  apiRequest<FunctionReview>(`/api/functions/${id}/review/comments`, { method: 'POST', body: { fieldPath, comment } });
+
+export const resolveReviewComment = (id: number, commentId: number) =>
+  apiRequest<FunctionReview>(`/api/functions/${id}/review/comments/${commentId}/resolve`, { method: 'POST' });
+
+export const setReviewSection = (id: number, section: WizardStep, reviewed: boolean) =>
+  apiRequest<FunctionReview>(`/api/functions/${id}/review/sections/${section}`, { method: reviewed ? 'PUT' : 'DELETE' });
+
+/** Returns a submission to its author with the open field corrections (CHANGES_REQUESTED, editable). */
+export const requestFunctionChanges = (id: number, summary?: string) =>
+  apiRequest<AdminFunction>(`/api/functions/${id}/request-changes`, { method: 'POST', body: summary ? { summary } : {} });

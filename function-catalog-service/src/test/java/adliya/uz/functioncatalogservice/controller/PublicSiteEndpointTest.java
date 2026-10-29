@@ -30,6 +30,7 @@ class PublicSiteEndpointTest {
     @MockitoBean adliya.uz.functioncatalogservice.service.MachineTranslationQueue translations;
     @MockitoBean SimpleJwtService jwt;
     @MockitoBean adliya.uz.functioncatalogservice.service.ServiceGuideService guides;
+    @MockitoBean adliya.uz.functioncatalogservice.service.FunctionReviewService reviews;
 
     @Test void anonymousVisitorsReadThePublicSiteWithoutTheDevelopmentAddress() throws Exception {
         mvc.perform(get("/api/functions/public-site")).andExpect(status().isOk())

@@ -25,7 +25,8 @@ public final class DocumentDetails {
         if (copies != null && (copies < 1 || copies > 20)) {
             throw new InvalidFieldException("documentDetails", "The number of copies must be between 1 and 20");
         }
-        return new DocumentDetail(document, detail.form(), copies, text(detail.validity()), text(detail.notes()), formUrl);
+        String id = detail.id() == null || !detail.id().matches(DocumentDetail.ID_PATTERN) ? null : detail.id();
+        return new DocumentDetail(document, detail.form(), copies, text(detail.validity()), text(detail.notes()), formUrl, id);
     }
 
     /**

@@ -315,6 +315,8 @@ export interface DocumentDetail {
   notes?: string | null;
   /** Link to the organization's approved blank form. */
   formUrl?: string | null;
+  /** Stable id of this item; review notes on it stay attached when the list is reordered. */
+  id?: string | null;
 }
 
 export interface UpdateFunctionRequirementsRequest {
