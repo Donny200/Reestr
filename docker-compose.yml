@@ -26,6 +26,12 @@ services:
     # Internal network only: the registry has no authentication, so it must not be reachable from outside Compose.
     expose:
       - "8761"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8761/eureka/apps || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 120s
     restart: unless-stopped
 
   identity-service:
@@ -54,11 +60,18 @@ services:
       SPRING_MAIL_USERNAME: "${SPRING_MAIL_USERNAME:-}"
       SPRING_MAIL_PASSWORD: "${SPRING_MAIL_PASSWORD:-}"
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    # Served without a session or database write; an answer means the service has finished starting.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8081/api/auth/password-reset/options || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 240s
     depends_on:
       postgres:
         condition: service_healthy
       eureka-server:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   reference-service:
@@ -78,11 +91,18 @@ services:
       AZURE_TRANSLATOR_REGION: "${AZURE_TRANSLATOR_REGION:-}"
       INTERFACE_TRANSLATION_ENABLED: "${INTERFACE_TRANSLATION_ENABLED:-true}"
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    # Served without a session or database write; an answer means the service has finished starting.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8084/api/regions || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 240s
     depends_on:
       postgres:
         condition: service_healthy
       eureka-server:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   function-catalog-service:
@@ -110,11 +130,18 @@ services:
       SPRING_MAIL_USERNAME: "${SPRING_MAIL_USERNAME:-}"
       SPRING_MAIL_PASSWORD: "${SPRING_MAIL_PASSWORD:-}"
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
+    # Served without a session or database write; an answer means the service has finished starting.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8085/api/functions/public-site || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 240s
     depends_on:
       postgres:
         condition: service_healthy
       eureka-server:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
   api-gateway:
@@ -128,11 +155,24 @@ services:
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka
       # Only nginx (static address below) may pass the visitor address through.
       GATEWAY_TRUSTED_PROXIES: "${GATEWAY_TRUSTED_PROXIES:-172.28.0.10/32}"
+    # Healthy only when a request is routed through service discovery to identity-service; while it is unhealthy the
+    # gateway answers 503 (no registered instance), which is what a reverse proxy in front of it passes on.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8082/api/auth/password-reset/options || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 240s
+    # The services are not waited for (service_started): one failing service must not keep the others unreachable.
     depends_on:
-      - eureka-server
-      - identity-service
-      - reference-service
-      - function-catalog-service
+      eureka-server:
+        condition: service_healthy
+      identity-service:
+        condition: service_started
+      reference-service:
+        condition: service_started
+      function-catalog-service:
+        condition: service_started
     restart: unless-stopped
 
   front:

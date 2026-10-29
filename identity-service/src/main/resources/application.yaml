@@ -95,5 +95,10 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+    # Register 5 s after start instead of 40 s: until then the gateway knows no instance and answers 503.
+    initial-instance-info-replication-interval-seconds: 5
   instance:
     prefer-ip-address: true
+    # Heartbeat every 10 s; an instance that misses 30 s of heartbeats (stopped or restarted container) is dropped.
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30

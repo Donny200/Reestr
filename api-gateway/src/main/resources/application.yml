@@ -5,6 +5,10 @@ spring:
   application:
     name: api-gateway
   cloud:
+    loadbalancer:
+      # Instance lists are cached per service; 5 s instead of the 35 s default, matching the registry refresh above.
+      cache:
+        ttl: 5s
     gateway:
       server:
         webflux:
@@ -55,5 +59,8 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+    # The gateway answers 503 for a route whose service has no known instance. Refresh the registry every 5 s
+    # (default 30 s) so instances that just registered are used without a long 503 window after a (re)start.
+    registry-fetch-interval-seconds: 5
   instance:
     prefer-ip-address: true

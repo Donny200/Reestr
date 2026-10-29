@@ -11,3 +11,7 @@ eureka:
     fetch-registry: false
   server:
     enable-self-preservation: false
+    # Registry changes reach the gateway within seconds instead of the 30 s / 60 s defaults, so a service that has
+    # just (re)started is routable quickly and a stopped one stops receiving requests quickly.
+    response-cache-update-interval-ms: 5000
+    eviction-interval-timer-in-ms: 15000
